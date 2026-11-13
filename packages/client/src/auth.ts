@@ -71,7 +71,8 @@ export function jwtSessionId(accessToken: string): string {
 export type LoginProof =
   | { kind: "code"; code: string }
   | { kind: "token_hash"; tokenHash: string; type: "magiclink" | "signup" | "email" }
-  | { kind: "session"; accessToken: string; refreshToken: string };
+  | { kind: "session"; accessToken: string; refreshToken: string }
+  | { kind: "auth_code"; code: string };
 
 export function parseLoginProof(input: string): LoginProof {
   const s = input.trim();
@@ -93,6 +94,8 @@ export function parseLoginProof(input: string): LoginProof {
     const t = url.searchParams.get("type");
     return { kind: "token_hash", tokenHash: token, type: t === "signup" || t === "email" ? t : "magiclink" };
   }
-  throw new TypeError("that link has neither a token nor a session");
+  const code = url.searchParams.get("code");
+  if (code) return { kind: "auth_code", code };
+  throw new TypeError("that link has no token, code or session");
 }
 

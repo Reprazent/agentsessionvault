@@ -16,7 +16,7 @@ Everything goes through the daemon, so start it first and leave it running in it
 
 It asks for the passphrase on start when there's an account, or reads `AGENTSESSIONVAULT_PASSPHRASE`. Then, in another terminal:
 
-    asv login you@example.com    # paste the code, or the link from the email
+    asv login you@example.com    # click the link in the email (or paste it, see below)
     asv setup                    # first device: passphrase, prints the recovery key
     asv unlock                   # other devices (--recovery for the recovery key)
     asv status
@@ -25,7 +25,9 @@ It asks for the passphrase on start when there's an account, or reads `AGENTSESS
     asv pull <session-id>        # into ~/.pi/agent/sessions, or --out <path>
     asv devices
 
-On the free tier the sign-in email can't be customised, and Supabase's default one only has a link. Don't click it. Copy the link and paste it at the prompt. If you already clicked it, paste the address of the page it opened (it doesn't need to load). The default sender also only delivers to members of the Supabase organisation.
+`login` starts a one-shot server on `127.0.0.1` (random port and path) inside the daemon, and the email link redirects there. Click it in a browser on the same machine and the terminal finishes by itself. Sign-in uses PKCE, so the code in that redirect is only useful to this daemon.
+
+On another machine (a VM over SSH, say), copy the link from the email and paste it at the prompt instead. If you already clicked it, paste the address of the page it tried to open. `login --paste` skips the local server entirely. The free tier doesn't allow custom email templates with the default sender, so the email has no code. The default sender also only delivers to members of the Supabase organisation.
 
 To try a second device on one machine, give it its own state directory and socket:
 

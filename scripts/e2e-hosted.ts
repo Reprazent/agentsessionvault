@@ -110,8 +110,24 @@ try {
   check(summary?.title === "Hello from A" && summary.cwd === "/e2e/project" && summary.head_seq === 3, "sessions lists decrypted metadata");
 
   // Device C: recovery key.
+  // Device C signs in through the local callback server: Supabase redirects
+  // the link there. generateLink makes implicit-flow links, so the session
+  // arrives in the fragment; we do what the callback page's script does.
   const c = await device("c");
-  await c.svc.verify((await magicLink()).email_otp, email);
+  const cbUrl = await (async () => {
+    const svc = c.svc as unknown as { callback?: { url: string; close(): void } };
+    const { startCallbackServer } = await import("../apps/cli/src/callback.ts");
+    svc.callback = await startCallbackServer();
+    (c.svc as unknown as { pendingEmail: string }).pendingEmail = email;
+    return svc.callback.url;
+  })();
+  const { data: linkC } = await admin.auth.admin.generateLink({ type: "magiclink", email, options: { redirectTo: cbUrl } });
+  const location = (await fetch(linkC.properties!.action_link, { redirect: "manual" })).headers.get("location")!;
+  check(location.startsWith(`${cbUrl}#`), "supabase redirects the link to the local callback");
+  const waiting = c.svc.waitLogin();
+  const pageHtml = await (await fetch(location.split("#")[0]!)).text();
+  await fetch(`${location.split("#")[0]}/fragment?${location.split("#")[1]}`, { method: "POST" });
+  check(pageHtml.includes("/fragment?") && (await waiting).signedIn, "c signs in through the callback");
   await c.svc.unlock({ recoveryKey: recoveryKey.toLowerCase() });
   check((await c.svc.pull(sid)).chunks === 3, "c unlocks with the recovery key and pulls");
 

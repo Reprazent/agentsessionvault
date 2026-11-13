@@ -20,6 +20,7 @@ class FakeServer {
   devices: (DeviceRow & { user_id: string })[] = [];
   sync = new MemoryServer();
   sentTo: string[] = [];
+  redirects: (string | undefined)[] = [];
   n = 0;
 }
 
@@ -28,11 +29,13 @@ class FakeBackend implements Backend {
   current: Session | null = null;
   constructor(readonly server: FakeServer) {}
 
-  async sendLoginEmail(email: string) {
+  async sendLoginEmail(email: string, redirectTo?: string) {
+    if (email.startsWith("fail")) throw new Error("Email address not authorized");
     this.server.sentTo.push(email);
+    this.server.redirects.push(redirectTo);
   }
   async verifyLogin(email: string, input: string) {
-    if (input !== "123456") throw new Error("Token has expired or is invalid");
+    if (input !== "123456" && !input.includes("code=good")) throw new Error("Token has expired or is invalid");
     this.current = {
       access_token: jwt(`s-${++this.server.n}`),
       user: { id: USER, email },
@@ -96,7 +99,7 @@ async function device() {
 
 async function signedIn() {
   const d = await device();
-  await d.svc.login("Me@Example.com ");
+  await d.svc.login("Me@Example.com ", { callback: false });
   await d.svc.verify("123456");
   return d;
 }
@@ -105,12 +108,58 @@ describe("login", () => {
   test("sends the email, then verifies with what the user pastes", async () => {
     const { svc } = await device();
     expect(await svc.status()).toEqual({ signedIn: false, unlocked: false });
-    expect(await svc.login(" Me@Example.com")).toEqual({ email: "me@example.com" });
+    expect(await svc.login(" Me@Example.com", { callback: false })).toEqual({ email: "me@example.com", callback: false });
     expect(server.sentTo).toEqual(["me@example.com"]);
+    expect(server.redirects).toEqual([undefined]);
     expect(await svc.status()).toEqual({ signedIn: false, unlocked: false, pendingLogin: "me@example.com" });
     await expect(svc.verify("000000")).rejects.toThrow("invalid");
     const st = await svc.verify("123456");
     expect(st).toMatchObject({ signedIn: true, email: "me@example.com", userId: USER, account: false, unlocked: false });
+  });
+
+  test("the email link redirects to the local callback, which completes the login", async () => {
+    const { svc } = await device();
+    expect(await svc.login("me@example.com")).toEqual({ email: "me@example.com", callback: true });
+    const url = server.redirects[0]!;
+    expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/callback\//);
+    const waiting = svc.waitLogin();
+    expect((await fetch(`${url}?code=good`)).status).toBe(200);
+    expect(await waiting).toMatchObject({ signedIn: true, email: "me@example.com" });
+    await expect(svc.waitLogin()).rejects.toThrow("no login is waiting");
+  });
+
+  test("a bad code from the callback fails the wait", async () => {
+    const { svc } = await device();
+    await svc.login("me@example.com");
+    const outcome = svc.waitLogin().catch((e: Error) => e.message);
+    await fetch(`${server.redirects[0]}?code=bad`);
+    expect(await outcome).toContain("invalid");
+  });
+
+  test("pasting instead closes the callback server", async () => {
+    const { svc } = await device();
+    await svc.login("me@example.com");
+    const waiting = svc.waitLogin();
+    await svc.verify("123456");
+    await expect(waiting).rejects.toThrow("cancelled");
+    await new Promise((r) => setTimeout(r, 20));
+    await expect(fetch(`${server.redirects[0]}?code=good`)).rejects.toThrow();
+  });
+
+  test("logging in again replaces the waiting login", async () => {
+    const { svc } = await device();
+    await svc.login("me@example.com");
+    const first = svc.waitLogin();
+    await svc.login("me@example.com");
+    await expect(first).rejects.toThrow("cancelled");
+    expect(server.redirects[1]).not.toBe(server.redirects[0]);
+    await svc.logout();
+  });
+
+  test("a failed email closes the callback server", async () => {
+    const { svc } = await device();
+    await expect(svc.login("fail@example.com")).rejects.toThrow("not authorized");
+    await expect(svc.waitLogin()).rejects.toThrow("no login is waiting");
   });
 
   test("rejects bad emails and verify without login", async () => {

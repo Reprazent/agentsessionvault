@@ -14,7 +14,7 @@ const USAGE = `agentsessionvault: end-to-end encrypted sync for agent sessions
 
 Usage:
   agentsessionvault daemon                  run the daemon in the foreground
-  agentsessionvault login [email]           sign in with an emailed code or link
+  agentsessionvault login [email] [--paste] sign in via the emailed link (--paste: no local server)
   agentsessionvault setup [--generate]      first device: create the account
   agentsessionvault unlock [--recovery]     unlock this device
   agentsessionvault status
@@ -92,6 +92,7 @@ export async function main(argv: string[]): Promise<number> {
       recovery: { type: "boolean" },
       out: { type: "string", short: "o" },
       json: { type: "boolean" },
+      paste: { type: "boolean" },
     },
   });
   const [cmd, ...args] = positionals;
@@ -111,20 +112,43 @@ export async function main(argv: string[]): Promise<number> {
     case "login":
       return withDaemon(async (c) => {
         const email = args[0] ?? (await prompt("Email: "));
-        const { email: sent } = await c.call<{ email: string }>("login", { email });
+        const { email: sent, callback } = await c.call<{ email: string; callback: boolean }>("login", {
+          email,
+          callback: !values.paste,
+        });
         err(`Sent a sign-in email to ${sent}.`);
-        err("Paste the code, or the link from the email (copy it, don't click it).");
-        err("If you already clicked it, paste the address of the page it opened.");
-        for (let attempt = 1; ; attempt++) {
-          const input = await prompt("Code or link: ");
-          try {
-            printStatus(await c.call<Status>("verify", { input, email: sent }));
-            return 0;
-          } catch (e) {
-            err(`That didn't work: ${(e as Error).message}`);
-            if (attempt >= 3) return 1;
-          }
+        if (callback) {
+          err("Open the link in a browser on this machine and you're done.");
+          err("If you've opened this elsewhere, copy the link from the email and paste it here.");
+        } else {
+          err("Paste the code, or the link from the email (copy it, don't click it).");
+          err("If you already clicked it, paste the address of the page it opened.");
         }
+        const viaBrowser = callback
+          ? c.call<Status>("waitLogin").then(
+              (s) => ({ s }),
+              (e: Error) => ({ e }),
+            )
+          : new Promise<never>(() => {});
+        const viaPaste = (async () => {
+          for (let attempt = 1; ; attempt++) {
+            const input = await prompt("Code or link: ");
+            try {
+              return { s: await c.call<Status>("verify", { input, email: sent }) };
+            } catch (e) {
+              err(`That didn't work: ${(e as Error).message}`);
+              if (attempt >= 3) return { e: e as Error };
+            }
+          }
+        })().catch((e: Error) => ({ e }));
+        const r: { s?: Status; e?: Error } = await Promise.race([viaBrowser, viaPaste]);
+        if (r.e) {
+          err(`\nerror: ${r.e.message}`);
+          return 1;
+        }
+        if (callback) err("");
+        printStatus(r.s!);
+        return 0;
       });
 
     case "setup":

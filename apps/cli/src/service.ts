@@ -22,6 +22,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join, resolve } from "node:path";
+import { type CallbackServer, startCallbackServer } from "./callback.ts";
 import type { Config } from "./config.ts";
 
 export class LockedError extends Error {
@@ -61,7 +62,7 @@ export interface DeviceInfo {
 
 /** What the service needs from the server. VaultClient in production, a fake in tests. */
 export interface Backend {
-  sendLoginEmail(email: string): Promise<void>;
+  sendLoginEmail(email: string, redirectTo?: string): Promise<void>;
   verifyLogin(email: string, input: string): Promise<unknown>;
   session(): Promise<Session | null>;
   requireSession(): Promise<Session>;
@@ -87,6 +88,7 @@ export class VaultService {
   readonly client: Backend;
   private unlocked: Unlocked | undefined;
   private pendingEmail: string | undefined;
+  private callback: CallbackServer | undefined;
 
   constructor(
     private readonly cfg: Config,
@@ -117,12 +119,34 @@ export class VaultService {
     };
   }
 
-  async login(email: string): Promise<{ email: string }> {
+  /**
+   * Sends the sign-in email. Unless callback is false, the link redirects to a
+   * one-shot server on 127.0.0.1 that completes the login; see waitLogin.
+   * Pasting the link or code into verify works either way.
+   */
+  async login(email: string, opts: { callback?: boolean; timeoutMs?: number } = {}): Promise<{ email: string; callback: boolean }> {
     const e = email.trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new TypeError("that doesn't look like an email address");
-    await this.client.sendLoginEmail(e);
+    this.callback?.close();
+    this.callback = opts.callback === false ? undefined : await startCallbackServer({ timeoutMs: opts.timeoutMs });
+    try {
+      await this.client.sendLoginEmail(e, this.callback?.url);
+    } catch (err) {
+      this.callback?.close();
+      this.callback = undefined;
+      throw err;
+    }
     this.pendingEmail = e;
-    return { email: e };
+    return { email: e, callback: !!this.callback };
+  }
+
+  /** Waits for the email link to hit the callback server, then completes the login. */
+  async waitLogin(): Promise<Status> {
+    const cb = this.callback;
+    if (!cb) throw new TypeError("no login is waiting for a link; run `agentsessionvault login`");
+    const url = await cb.result;
+    if (this.callback !== cb) throw new Error("login was restarted");
+    return this.verify(url.toString());
   }
 
   /** Completes login with the code or link from the email. */
@@ -131,12 +155,16 @@ export class VaultService {
     if (!e) throw new TypeError("run `agentsessionvault login` first");
     await this.client.verifyLogin(e, input);
     this.pendingEmail = undefined;
+    this.callback?.close();
+    this.callback = undefined;
     this.unlocked = undefined;
     return this.status();
   }
 
   async logout(): Promise<void> {
     this.unlocked = undefined;
+    this.callback?.close();
+    this.callback = undefined;
     await this.client.signOut();
   }
 

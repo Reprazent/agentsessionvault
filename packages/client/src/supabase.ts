@@ -38,14 +38,21 @@ export class VaultClient {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: false,
-        flowType: "implicit",
+        flowType: "pkce",
       },
     });
   }
 
-  /** Emails a sign-in code (or link). Creates the user on first use. */
-  async sendLoginEmail(email: string): Promise<void> {
-    const { error } = await this.supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+  /**
+   * Emails a sign-in code (or link). Creates the user on first use. With
+   * redirectTo, the link lands there with ?code=, which only this client can
+   * exchange: it holds the PKCE verifier.
+   */
+  async sendLoginEmail(email: string, redirectTo?: string): Promise<void> {
+    const { error } = await this.supabase.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: true, ...(redirectTo ? { emailRedirectTo: redirectTo } : {}) },
+    });
     if (error) throw error;
   }
 
@@ -57,7 +64,9 @@ export class VaultClient {
         ? await auth.verifyOtp({ email, token: proof.code, type: "email" })
         : proof.kind === "token_hash"
           ? await auth.verifyOtp({ token_hash: proof.tokenHash, type: proof.type })
-          : await auth.setSession({ access_token: proof.accessToken, refresh_token: proof.refreshToken });
+          : proof.kind === "auth_code"
+            ? await auth.exchangeCodeForSession(proof.code)
+            : await auth.setSession({ access_token: proof.accessToken, refresh_token: proof.refreshToken });
     if (error) throw error;
     if (!data.session) throw new Error("sign-in returned no session");
     return data.session;

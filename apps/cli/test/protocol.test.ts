@@ -155,6 +155,8 @@ describe("daemon handlers", () => {
     expect(await h.ping!({})).toBe("pong");
     await h.status!({});
     await h.login!({ email: "a@b.c" });
+    await h.login!({ email: "a@b.c", callback: false });
+    await h.waitLogin!({});
     await h.verify!({ input: "123456" });
     await h.verify!({ input: "123456", email: "a@b.c" });
     await h.logout!({});
@@ -169,7 +171,9 @@ describe("daemon handlers", () => {
     await h.devices!({});
     expect(calls).toEqual([
       ["status", []],
-      ["login", ["a@b.c"]],
+      ["login", ["a@b.c", { callback: true }]],
+      ["login", ["a@b.c", { callback: false }]],
+      ["waitLogin", []],
       ["verify", ["123456", undefined]],
       ["verify", ["123456", "a@b.c"]],
       ["logout", []],

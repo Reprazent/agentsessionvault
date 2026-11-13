@@ -61,6 +61,10 @@ describe("parseLoginProof", () => {
     });
   });
 
+  test("a PKCE code in the query", () => {
+    expect(parseLoginProof("http://127.0.0.1:5555/callback/n?code=abc")).toEqual({ kind: "auth_code", code: "abc" });
+  });
+
   test("an expired link says so", () => {
     expect(() => parseLoginProof("http://localhost:3000/#error=access_denied&error_description=Email+link+is+invalid+or+has+expired")).toThrow(
       "Email link is invalid or has expired",
@@ -69,6 +73,6 @@ describe("parseLoginProof", () => {
 
   test("anything else", () => {
     expect(() => parseLoginProof("hello")).toThrow("expected the code");
-    expect(() => parseLoginProof("https://example.com/")).toThrow("neither a token nor a session");
+    expect(() => parseLoginProof("https://example.com/")).toThrow("no token, code or session");
   });
 });
