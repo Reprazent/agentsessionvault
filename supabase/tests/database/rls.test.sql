@@ -1,7 +1,7 @@
 begin;
 create extension if not exists "pgtap" with schema "extensions";
 
-select plan(33);
+select plan(35);
 
 -- Fixtures, as the table owner. Two users; alice has two auth sessions
 -- (an active device and a revoked one), bob has one.
@@ -212,6 +212,21 @@ select throws_ok(
        'a0000000-0000-4000-8000-000000000001/c0000000-0000-4000-8000-000000000001/2-qrstuvwxyzabcdef.bin', 'append', 100) $$,
   '42501', null,
   'a revoked device cannot commit chunks'
+);
+
+-- storage_used is for the quota check in upload-url only.
+
+select throws_ok(
+  $$ select "public"."storage_used"('a0000000-0000-4000-8000-000000000001') $$,
+  '42501', null,
+  'signed-in users cannot call storage_used'
+);
+
+reset role;
+set local role service_role;
+select is(
+  "public"."storage_used"('a0000000-0000-4000-8000-000000000001'),
+  100::bigint, 'storage_used sums committed chunk sizes'
 );
 
 -- Anonymous users get nothing.

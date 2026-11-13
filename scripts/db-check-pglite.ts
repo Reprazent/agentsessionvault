@@ -8,7 +8,7 @@ const db = new PGlite();
 // auth, storage or pgTAP); `pnpm test:db` against the hosted project is the
 // source of truth.
 await db.exec(`
-create role anon nologin; create role authenticated nologin; create role service_role nologin;
+create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
 create schema auth; create schema storage; create schema extensions;
 grant usage on schema auth, storage, extensions to anon, authenticated;
 create table auth.users (id uuid primary key, email text);

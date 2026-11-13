@@ -2,7 +2,43 @@
 
 End-to-end encrypted sync for coding agent sessions, on Supabase. See [docs/spec.md](docs/spec.md).
 
-Status: milestone 1. The crypto package and database schema exist. There is no `agentsessionvault` CLI or Pi extension yet.
+Status: milestone 2. The CLI and daemon can sign in, set up or unlock an account, and push and pull Pi sessions by hand. No file watching, Realtime or Pi extension yet.
+
+## Using the CLI
+
+Run it from the repo with bun, or build the single binary (`pnpm --filter @agentsessionvault/cli build`, output in `apps/cli/dist/`):
+
+    alias asv='bun apps/cli/src/main.ts'
+
+Everything goes through the daemon, so start it first and leave it running in its own terminal:
+
+    asv daemon
+
+It asks for the passphrase on start when there's an account, or reads `AGENTSESSIONVAULT_PASSPHRASE`. Then, in another terminal:
+
+    asv login you@example.com    # paste the code, or the link from the email
+    asv setup                    # first device: passphrase, prints the recovery key
+    asv unlock                   # other devices (--recovery for the recovery key)
+    asv status
+    asv push ~/.pi/agent/sessions/<dir>/<file>.jsonl
+    asv sessions
+    asv pull <session-id>        # into ~/.pi/agent/sessions, or --out <path>
+    asv devices
+
+On the free tier the sign-in email can't be customised, and Supabase's default one only has a link. Don't click it. Copy the link and paste it at the prompt. If you already clicked it, paste the address of the page it opened (it doesn't need to load). The default sender also only delivers to members of the Supabase organisation.
+
+To try a second device on one machine, give it its own state directory and socket:
+
+    AGENTSESSIONVAULT_HOME=/tmp/asv-b AGENTSESSIONVAULT_PI_SESSIONS=/tmp/asv-b/pi asv daemon
+    AGENTSESSIONVAULT_HOME=/tmp/asv-b asv login you@example.com
+
+Other settings: `AGENTSESSIONVAULT_SOCKET`, `AGENTSESSIONVAULT_SUPABASE_URL`, `AGENTSESSIONVAULT_PUBLISHABLE_KEY`. State lives in `~/.local/share/agentsessionvault/` (`auth.json` holds the sign-in, `sessions/` the sync state per session). No keys are ever written there.
+
+Known limits for now:
+
+- `pull` appends to the session file. Don't pull into a session that's open in Pi.
+- Pulled sessions are placed by their original working directory. Matching projects by git remote comes later.
+- A session you push from a second device before pulling it there is merged first, so nothing is duplicated. A session that already exists remotely can still re-send some entries in rare cases. Merging by id makes this harmless.
 
 ## Setup
 
@@ -21,6 +57,8 @@ No Docker needed.
 | `pnpm typecheck` | Runs `tsc` in every workspace package. |
 | `pnpm test:db:local` | Applies `supabase/migrations/` and runs `supabase/tests/database/` in PGlite. |
 | `pnpm test:db` | Runs the pgTAP tests against the linked hosted Supabase project, without Docker. |
+| `pnpm test:e2e` | Two and three simulated devices against the hosted project: setup, unlock, push, pull, branches, revocation. |
+| `pnpm gen:types` | Regenerates `packages/client/src/database.types.ts` from the hosted schema. |
 
 Run a single package or file with bun directly:
 
@@ -36,6 +74,17 @@ Covers `packages/crypto`: key derivation, key wrapping, envelopes, the chunk for
 The Supabase CLI's local stack needs Docker, so this runs in [PGlite](https://pglite.dev) instead (`scripts/db-check-pglite.ts`). It stubs `auth.uid()`, `auth.jwt()`, `storage.buckets`/`objects` and the `supabase_realtime` publication. It also provides a minimal pgTAP shim (`plan`, `lives_ok`, `throws_ok`, `is`, `finish`). The script exits non-zero if any test fails or the count doesn't match `plan()`.
 
 It's a quick feedback loop, not the source of truth. Real Supabase auth, storage and pgTAP can behave differently, and tests may only use the functions the shim provides.
+
+### `pnpm test:e2e` (hosted)
+
+Creates a throwaway user with the admin API and signs devices in with tokens from `generateLink`, so no email is sent. It drives `VaultService` (the daemon's core) through the whole flow and deletes the user and its objects afterwards. The secret key comes from `supabase projects api-keys --reveal` at runtime and is never written to disk. `packages/client/src/supabase.ts` is only covered by this, so it's excluded from the unit coverage threshold.
+
+### Deploying
+
+    supabase db push --remote
+    supabase functions deploy upload-url --use-api --no-verify-jwt
+
+`--use-api` bundles the function on Supabase's side, so no Docker. The function checks the token itself.
 
 ### `pnpm test:db` (hosted)
 

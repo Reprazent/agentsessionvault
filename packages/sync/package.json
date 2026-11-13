@@ -1,0 +1,17 @@
+{
+  "name": "@agentsessionvault/sync",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@agentsessionvault/crypto": "workspace:*",
+    "@agentsessionvault/adapter-pi": "workspace:*"
+  }
+}

@@ -6,10 +6,13 @@
     "test": "bun test",
     "typecheck": "pnpm -r --parallel typecheck",
     "test:db": "bun scripts/db-test-remote.ts",
-    "test:db:local": "bun scripts/db-check-pglite.ts"
+    "test:db:local": "bun scripts/db-check-pglite.ts",
+    "test:e2e": "bun scripts/e2e-hosted.ts",
+    "gen:types": "supabase gen types --remote --schema public > packages/client/src/database.types.ts"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.16",
+    "@supabase/supabase-js": "^2.119.0",
     "@types/bun": "^1.4.4",
     "typescript": "^7.0.2"
   }

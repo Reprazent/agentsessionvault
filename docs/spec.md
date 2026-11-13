@@ -231,6 +231,8 @@ The random suffix is stored on the chunk row as `object_name`. Without it, a dev
 
 Storage RLS: the first path segment has to equal `auth.uid()` for reads. Uploads only go through signed upload URLs from the `upload-url` Edge Function, which checks the user's total against the quota first. RLS can't enforce a per-user total, and the `size` on a chunk row is whatever the client claims.
 
+`upload-url` takes `{session_id, seq, size}` and checks the token itself (`auth.getUser`, so it works with asymmetric signing keys and is deployed with `--no-verify-jwt`). It checks for an active device, that the session is visible to the caller and `seq = head_seq + 1` (409 otherwise, so a losing device stops before uploading). It then checks the quota through `storage_used`, an RPC only the service role can execute, and picks the object name itself. Parallel calls can both pass the quota check, and objects without a row aren't counted until cleanup. Both are bounded by the 2 MiB object limit.
+
 A chunk object is:
 
 ```
@@ -263,7 +265,7 @@ Pull, triggered by Realtime inserts on `chunks` for my sessions, on startup, and
 2. For Pi, every line is an entry with an `id` and `parentId`. Append the entries whose `id` isn't known locally. Because the format is a tree, two devices continuing the same session just produce two branches, which Pi already knows how to show.
 3. A `snapshot` replaces the merged view: rebuild from the snapshot plus the later appends, and keep any local entries not in it.
 
-Local file placement: a pulled session is written under the local directory that matches its project. Matching goes by `project_tag` (git remote first, path relative to `$HOME` as the fallback). If no local checkout matches, the session goes to an `_unmapped/` folder and `/vault map` fixes it later. Paths inside entries are left alone in v1. Rewriting tool arguments is how you corrupt a transcript.
+Local file placement (milestone 2: by the original `cwd` from `meta_enc`, in Pi's `--<cwd>--/<timestamp>_<id>.jsonl` layout, or an explicit `--out`; the `projects` table isn't used yet): a pulled session is written under the local directory that matches its project. Matching goes by `project_tag` (git remote first, path relative to `$HOME` as the fallback). If no local checkout matches, the session goes to an `_unmapped/` folder and `/vault map` fixes it later. Paths inside entries are left alone in v1. Rewriting tool arguments is how you corrupt a transcript.
 
 Deletes: `/resume` delete in Pi removes the file. The daemon notices and sets `deleted_at`. Other devices move their copy to the trash, they don't delete it outright. Objects get purged after 30 days.
 
@@ -279,7 +281,7 @@ Not part of v1's critical path. It's still written down now so the native-first 
 ## Client UX (Pi)
 
 ```
-/vault login          # Supabase Auth, emailed one-time code (works on headless VMs)
+/vault login          # Supabase Auth, emailed one-time code or link (works on headless VMs)
 /vault setup          # first device: passphrase, prints recovery key
 /vault unlock         # extra device: passphrase (prompt or env var) or recovery key
 /vault status         # per session: synced, pending, conflicted
@@ -328,7 +330,7 @@ Deviations, on purpose:
 - With open signups the project holds other people's data. Does that need a privacy note and an account deletion command before anyone else signs up?
   Proposal: yes. Keep signups closed until both exist.
 - Local development: the Supabase CLI's local stack still needs Docker. pgTAP tests run against the hosted project (`pnpm test:db`), and `pnpm test:db:local` gives a quick approximation in PGlite with stubbed `auth`/`storage` schemas and a minimal pgTAP shim.
-- Email: the default Supabase sender is fine for the PoC. It needs custom SMTP before others sign up.
+- Email: the default Supabase sender is fine for the PoC. It needs custom SMTP before others sign up. It only delivers to members of the Supabase organisation, and on the free tier the templates can't be changed without custom SMTP, so the default email has a link and no code. `login` therefore accepts the code, the link itself (copied, not clicked, exchanged with `verifyOtp({token_hash})`), or the URL the link redirected to (the session is in the fragment). With custom SMTP, the templates should show `{{ .Token }}`.
 - Sequence numbers: two devices pushing to one session contend for `head_seq + 1`. Since Pi entries merge by id, a server-assigned cursor would remove the contention.
   Answer: keep sequential for the PoC.
 

@@ -2,3 +2,10 @@
 coverage = true
 coverageThreshold = { lines = 0.95, functions = 0.95 }
 coverageSkipTestFiles = true
+# I/O shells without unit tests. supabase.ts is covered by `pnpm test:e2e`
+# against the hosted project; main.ts and prompt.ts by using the CLI.
+coveragePathIgnorePatterns = [
+  "packages/client/src/supabase.ts",
+  "apps/cli/src/main.ts",
+  "apps/cli/src/prompt.ts",
+]

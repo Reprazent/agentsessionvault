@@ -1,0 +1,20 @@
+{
+  "name": "@agentsessionvault/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "agentsessionvault": "./src/main.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc -p .",
+    "build": "bun build --compile --minify src/main.ts --outfile dist/agentsessionvault"
+  },
+  "dependencies": {
+    "@agentsessionvault/client": "workspace:*",
+    "@agentsessionvault/crypto": "workspace:*",
+    "@agentsessionvault/sync": "workspace:*",
+    "@supabase/supabase-js": "^2.119.0"
+  }
+}
