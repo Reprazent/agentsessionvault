@@ -36,13 +36,14 @@ Every command except daemon talks to a running daemon.
 /** `agentsessionvault daemon`: runs in the foreground until stopped. */
 async function runDaemon(cfg: Config): Promise<never> {
   const log = (m: string) => process.stderr.write(`${new Date().toISOString()} ${m}\n`);
-  const svc = new VaultService(cfg);
+  const svc = new VaultService(cfg, undefined, { log });
   await svc.init();
   const server = await serve(cfg.socketPath, handlers(svc, log), log);
   log(`listening on ${cfg.socketPath}`);
   const stop = async () => {
     log("stopping");
     await server.close();
+    await svc.close();
     process.exit(0);
   };
   process.on("SIGINT", stop);
@@ -72,6 +73,10 @@ function printStatus(s: Status) {
   out(`signed in as ${s.email}`);
   if (!s.account) return out("no account yet: run `agentsessionvault setup`");
   out(s.unlocked ? `unlocked, device ${s.deviceId} (${s.deviceName})` : "locked: run `agentsessionvault unlock`");
+  if (s.sync) {
+    out(`auto-push: ${s.sync.watching ? "on" : "off"}, ${s.sync.pending} pending${s.sync.lastPush ? `, last ${s.sync.lastPush.at}` : ""}`);
+    if (s.sync.lastError) out(`  last error ${s.sync.lastError.at}: ${s.sync.lastError.message}`);
+  }
 }
 
 async function newPassphrase(): Promise<string> {

@@ -56,6 +56,7 @@ export function handlers(svc: VaultService, log: (m: string) => void): Record<st
       log("passphrase changed");
       return r;
     },
+    nudge: (p) => svc.nudge(optStr(p, "path")),
     sessions: () => svc.sessions(),
     projects: () => svc.projects(),
     map: async (p) => {

@@ -21,7 +21,7 @@ It asks for the passphrase on start when there's an account, or reads `AGENTSESS
     asv unlock                   # other devices (--recovery for the recovery key)
     asv passphrase               # new passphrase; --recovery if you forgot the old one
     asv status
-    asv push ~/.pi/agent/sessions/<dir>/<file>.jsonl
+    asv push ~/.pi/agent/sessions/<dir>/<file>.jsonl   # by hand; see auto-push below
     asv sessions
     asv pull <session-id>        # into ~/.pi/agent/sessions, or --out <path>
     asv projects                 # one per git remote, else per path under $HOME
@@ -41,6 +41,8 @@ To try a second device on one machine, give it its own state directory and socke
     AGENTSESSIONVAULT_HOME=/tmp/asv-b asv login you@example.com
 
 Other settings: `AGENTSESSIONVAULT_SOCKET`, `AGENTSESSIONVAULT_SUPABASE_URL`, `AGENTSESSIONVAULT_PUBLISHABLE_KEY`. State lives in `~/.local/share/agentsessionvault/` (`auth.json` holds the sign-in, `sessions/` the sync state per session). No keys are ever written there.
+
+While unlocked, the daemon pushes on its own: it watches `~/.pi/agent/sessions` and pushes a session 2 seconds after Pi last wrote to it. On unlocking, it first pushes anything that changed while it wasn't running. `asv status` shows what's queued and the last error. Failed pushes retry with backoff.
 
 Known limits for now:
 

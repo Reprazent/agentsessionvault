@@ -14,7 +14,7 @@ import {
   unlockWithPassphrase,
   unlockWithRecoveryKey,
 } from "@agentsessionvault/crypto";
-import { type DeviceRow, VaultClient, jwtSessionId } from "@agentsessionvault/client";
+import { type DeviceRow, NotSignedInError, RevokedDeviceError, VaultClient, jwtSessionId } from "@agentsessionvault/client";
 import type { AccountKeys } from "@agentsessionvault/crypto";
 import type { Remote } from "@agentsessionvault/sync";
 import type { Session } from "@supabase/supabase-js";
@@ -33,6 +33,14 @@ import { hostname } from "node:os";
 import { join, resolve } from "node:path";
 import { type CallbackServer, startCallbackServer } from "./callback.ts";
 import type { Config } from "./config.ts";
+import { type WatchStatus, Watcher } from "./watcher.ts";
+
+/** Auto-push from Pi's sessions directory; the daemon turns it on. */
+export interface WatchOptions {
+  log: (m: string) => void;
+  debounceMs?: number;
+  retryMs?: number;
+}
 
 export class LockedError extends Error {
   override name = "LockedError";
@@ -58,6 +66,8 @@ export interface Status {
   deviceId?: string;
   deviceName?: string;
   pendingLogin?: string;
+  /** Auto-push, while unlocked and watching. */
+  sync?: WatchStatus;
 }
 
 export interface DeviceInfo {
@@ -97,15 +107,22 @@ interface Unlocked {
   engine: SyncEngine;
 }
 
+/** Retrying won't help these; unlocking again restarts the watcher. */
+export function stopsAutoPush(e: unknown): boolean {
+  return e instanceof NotSignedInError || e instanceof RevokedDeviceError;
+}
+
 export class VaultService {
   readonly client: Backend;
   private unlocked: Unlocked | undefined;
   private pendingEmail: string | undefined;
   private callback: CallbackServer | undefined;
+  private watcher: Watcher | undefined;
 
   constructor(
     private readonly cfg: Config,
     client?: Backend,
+    private readonly watch?: WatchOptions,
   ) {
     this.client =
       client ??
@@ -121,7 +138,7 @@ export class VaultService {
     if (!session) return { signedIn: false, unlocked: false, ...(this.pendingEmail ? { pendingLogin: this.pendingEmail } : {}) };
     const u = this.unlocked;
     // A refreshed token for another sign-in invalidates what we unlocked.
-    if (u && (u.userId !== session.user.id || u.authSessionId !== jwtSessionId(session.access_token))) this.unlocked = undefined;
+    if (u && (u.userId !== session.user.id || u.authSessionId !== jwtSessionId(session.access_token))) this.lock();
     return {
       signedIn: true,
       email: session.user.email,
@@ -129,6 +146,7 @@ export class VaultService {
       account: this.unlocked ? true : (await this.client.getAccount(session.user.id)) !== null,
       unlocked: !!this.unlocked,
       ...(this.unlocked ? { deviceId: this.unlocked.deviceId, deviceName: hostname() } : {}),
+      ...(this.unlocked && this.watcher ? { sync: { ...this.watcher.status } } : {}),
     };
   }
 
@@ -174,12 +192,26 @@ export class VaultService {
     this.pendingEmail = undefined;
     this.callback?.close();
     this.callback = undefined;
-    this.unlocked = undefined;
+    this.lock();
     return this.status();
   }
 
-  async logout(): Promise<void> {
+  /** Forget the keys and stop pushing. */
+  private lock(): void {
     this.unlocked = undefined;
+    this.watcher?.close();
+    this.watcher = undefined;
+  }
+
+  /** Stops background work; for shutting down the daemon. */
+  async close(): Promise<void> {
+    await this.watcher?.flush(); // never rejects: failures are retried or logged
+    this.lock();
+    this.callback?.close();
+  }
+
+  async logout(): Promise<void> {
+    this.lock();
     this.callback?.close();
     this.callback = undefined;
     await this.client.signOut();
@@ -271,6 +303,38 @@ export class VaultService {
         sessionsDir: this.cfg.piSessionsDir,
       }),
     };
+    await this.startWatching();
+  }
+
+  private async startWatching(): Promise<void> {
+    if (!this.watch || !this.unlocked) return;
+    this.watcher?.close();
+    const engine = this.unlocked.engine;
+    const w = new Watcher({
+      dir: this.cfg.piSessionsDir,
+      target: { pending: (p) => engine.pending(p), push: (p) => engine.push(p) },
+      log: this.watch.log,
+      ...(this.watch.debounceMs !== undefined ? { debounceMs: this.watch.debounceMs } : {}),
+      ...(this.watch.retryMs !== undefined ? { retryMs: this.watch.retryMs } : {}),
+      isFatal: stopsAutoPush,
+    });
+    this.watcher = w;
+    await mkdir(this.cfg.piSessionsDir, { recursive: true });
+    await w.start();
+  }
+
+  /**
+   * A client says a session changed (Pi after a turn): push it now rather
+   * than after the debounce. Without a path, pushes everything queued.
+   */
+  async nudge(path?: string): Promise<WatchStatus> {
+    await this.requireUnlocked();
+    if (!this.watcher) {
+      if (path) await this.push(path);
+      return { watching: false, pending: 0 };
+    }
+    await this.watcher.flush(path ? resolve(path) : undefined);
+    return { ...this.watcher.status };
   }
 
   private async requireUnlocked(): Promise<Unlocked> {

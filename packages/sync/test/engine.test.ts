@@ -480,6 +480,24 @@ describe("projects", () => {
   });
 });
 
+describe("pending", () => {
+  test("new files, appends, partial pushes, moved files", async () => {
+    const a = await device("a");
+    await writeFile(a.file, `${header}\n${entry("e1", null)}\n`);
+    expect(await a.engine.pending(a.file)).toBe(true);
+    await a.engine.push(a.file);
+    expect(await a.engine.pending(a.file)).toBe(false);
+    await appendFile(a.file, `${entry("e2", "e1")}\n`);
+    expect(await a.engine.pending(a.file)).toBe(true);
+    await a.engine.push(a.file);
+    const copy = join(a.root, "copy.jsonl");
+    await writeFile(copy, await readFile(a.file));
+    expect(await a.engine.pending(copy)).toBe(true);
+    await writeFile(join(a.root, "empty.jsonl"), "");
+    await expect(a.engine.pending(join(a.root, "empty.jsonl"))).rejects.toThrow();
+  });
+});
+
 describe("sessions", () => {
   test("lists decrypted metadata and local state", async () => {
     const a = await device("a");

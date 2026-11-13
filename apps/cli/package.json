@@ -12,6 +12,7 @@
     "build": "bun build --compile --minify src/main.ts --outfile dist/agentsessionvault"
   },
   "dependencies": {
+    "@agentsessionvault/adapter-pi": "workspace:*",
     "@agentsessionvault/client": "workspace:*",
     "@agentsessionvault/crypto": "workspace:*",
     "@agentsessionvault/sync": "workspace:*",

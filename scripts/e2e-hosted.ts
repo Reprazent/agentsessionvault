@@ -6,12 +6,12 @@
 // The secret key is fetched from the Supabase CLI at runtime and only kept in
 // memory. Run with `pnpm test:e2e`.
 import { createClient } from "@supabase/supabase-js";
-import { appendFile, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { VaultClient } from "../packages/client/src/index.ts";
 import { loadConfig } from "../apps/cli/src/config.ts";
-import { VaultService } from "../apps/cli/src/service.ts";
+import { VaultService, type WatchOptions } from "../apps/cli/src/service.ts";
 
 const cfg = loadConfig({});
 const keys = JSON.parse(
@@ -31,9 +31,9 @@ function check(cond: unknown, what: string): asserts cond {
   console.log(`ok - ${what}`);
 }
 
-async function device(name: string) {
+async function device(name: string, watch?: WatchOptions) {
   const root = await mkdtemp(join(tmpdir(), `asv-e2e-${name}-`));
-  const svc = new VaultService({ ...cfg, stateDir: join(root, "state"), piSessionsDir: join(root, "pi"), socketPath: "" });
+  const svc = new VaultService({ ...cfg, stateDir: join(root, "state"), piSessionsDir: join(root, "pi"), socketPath: "" }, undefined, watch);
   await svc.init();
   return { root, svc };
 }
@@ -125,7 +125,8 @@ try {
   // Device C signs in through the local callback server: Supabase redirects
   // the link there. generateLink makes implicit-flow links, so the session
   // arrives in the fragment; we do what the callback page's script does.
-  const c = await device("c");
+  const watchLog: string[] = [];
+  const c = await device("c", { log: (m) => watchLog.push(m), debounceMs: 300 });
   const cbUrl = await (async () => {
     const svc = c.svc as unknown as { callback?: { url: string; close(): void } };
     const { startCallbackServer } = await import("../apps/cli/src/callback.ts");
@@ -142,6 +143,21 @@ try {
   check(pageHtml.includes("/fragment?") && (await waiting).signedIn, "c signs in through the callback");
   await c.svc.unlock({ recoveryKey: recoveryKey.toLowerCase() });
   check((await c.svc.pull(sid)).chunks === 3, "c unlocks with the recovery key and pulls");
+
+  // c watches its Pi directory: a new session pushes without being asked.
+  const sid2 = crypto.randomUUID();
+  const ownDir = join(c.root, "pi", "--e2e-own--");
+  await mkdir(ownDir, { recursive: true });
+  const ownFile = join(ownDir, `2026-11-14T09-00-00-000Z_${sid2}.jsonl`);
+  await writeFile(ownFile, `${JSON.stringify({ type: "session", version: 3, id: sid2, timestamp: new Date().toISOString(), cwd: "/e2e/own" })}\n${entry("w1", null, "Watched")}\n`);
+  const seen = async () => (await a.svc.sessions()).find((s) => s.id === sid2)?.head_seq ?? 0;
+  for (let i = 0; i < 100 && (await seen()) < 1; i++) await Bun.sleep(100);
+  check((await seen()) === 1, "c pushes a new session file on its own");
+  await appendFile(ownFile, `${entry("w2", "w1", "Nudged")}\n`);
+  await c.svc.nudge(ownFile);
+  check((await seen()) === 2, "a nudge pushes right away");
+  check(!watchLog.some((l) => l.includes("failed")), "auto-push had no failures");
+  await c.svc.close();
 
   // a changes the passphrase; the old one stops working, the recovery key doesn't.
   const newPass = "an entirely new e2e passphrase";

@@ -172,6 +172,26 @@ export class SyncEngine {
     return { userId: this.remote.userId, sessionId, seq, kind };
   }
 
+  /**
+   * Whether a local session file has bytes that aren't pushed yet. Cheap: a
+   * stat, the header line and the state file, no network. Same-size rewrites
+   * aren't spotted here; push itself still detects them.
+   */
+  async pending(path: string): Promise<boolean> {
+    const size = (await stat(path)).size;
+    const fh = await open(path, "r");
+    let head: string;
+    try {
+      const buf = new Uint8Array(Math.min(size, 64 * 1024));
+      const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
+      head = new TextDecoder().decode(buf.subarray(0, bytesRead));
+    } finally {
+      await fh.close();
+    }
+    const st = await this.state.load(parseHeader(head).id);
+    return !st || st.path !== path || st.pushedOffset !== size;
+  }
+
   /** Push the new part of a local Pi session file. Pulls first, and again on conflicts. */
   async push(path: string): Promise<PushResult> {
     const header = parseHeader(new TextDecoder().decode(await readFile(path)));

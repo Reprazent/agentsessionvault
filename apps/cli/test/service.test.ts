@@ -3,11 +3,11 @@ import { type DeviceRow, NotSignedInError, RevokedDeviceError } from "@agentsess
 import type { AccountKeys } from "@agentsessionvault/crypto";
 import { ConflictError, MemoryServer } from "@agentsessionvault/sync";
 import type { Session } from "@supabase/supabase-js";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { unlockAtStart } from "../src/daemon.ts";
-import { type Backend, LockedError, NoAccountError, VaultService } from "../src/service.ts";
+import { type Backend, LockedError, stopsAutoPush, NoAccountError, VaultService, type WatchOptions } from "../src/service.ts";
 
 const USER = "a0000000-0000-4000-8000-000000000001";
 const PASS = "a long enough passphrase";
@@ -100,16 +100,16 @@ beforeEach(() => {
   server = new FakeServer();
 });
 
-async function device() {
+async function device(watch?: WatchOptions) {
   const root = await mkdtemp(join(tmpdir(), "asv-svc-"));
   const backend = new FakeBackend(server);
-  const svc = new VaultService({ supabaseUrl: "", publishableKey: "", stateDir: join(root, "state"), piSessionsDir: join(root, "pi"), socketPath: "" }, backend);
+  const svc = new VaultService({ supabaseUrl: "", publishableKey: "", stateDir: join(root, "state"), piSessionsDir: join(root, "pi"), socketPath: "" }, backend, watch);
   await svc.init();
   return { root, svc, backend };
 }
 
-async function signedIn() {
-  const d = await device();
+async function signedIn(watch?: WatchOptions) {
+  const d = await device(watch);
   await d.svc.login("Me@Example.com ", { callback: false });
   await d.svc.verify("123456");
   return d;
@@ -495,5 +495,63 @@ describe("unlockAtStart", () => {
     };
     await unlockAtStart(b.svc, (m) => logs.push(m), raced.io);
     expect((await b.svc.status()).unlocked).toBe(true);
+  });
+});
+
+describe("auto-push", () => {
+  const sid = "01a1d47c-9870-7461-a887-70599c34d8ab";
+  const line = (id: string, parent: string | null) =>
+    `${JSON.stringify({ type: "message", id, parentId: parent, timestamp: "2026-11-13T10:38:18.000Z", message: { role: "user", content: "hi" } })}\n`;
+
+  test("unlocking starts watching; changes push on their own or on a nudge", async () => {
+    const logs: string[] = [];
+    const a = await signedIn({ log: (m) => logs.push(m), debounceMs: 20 });
+    // Before unlocking: no watcher, nudge needs unlocking.
+    await expect(a.svc.nudge()).rejects.toBeInstanceOf(NoAccountError);
+    const dir = join(a.root, "pi", "--p--");
+    await mkdir(dir, { recursive: true });
+    const file = join(dir, "s.jsonl");
+    await writeFile(file, `{"type":"session","version":3,"id":"${sid}","timestamp":"2026-11-13T10:38:17.712Z","cwd":"/p"}\n${line("e1", null)}`);
+    await a.svc.setup({ passphrase: PASS });
+    // The startup scan pushes what's there.
+    await a.svc.nudge();
+    expect(server.sync.sessions.get(sid)?.head_seq).toBe(1);
+    expect((await a.svc.status()).sync).toMatchObject({ watching: true, pending: 0 });
+
+    await appendFile(file, line("e2", "e1"));
+    for (let i = 0; i < 200 && server.sync.sessions.get(sid)!.head_seq < 2; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(server.sync.sessions.get(sid)!.head_seq).toBe(2);
+
+    await appendFile(file, line("e3", "e2"));
+    // A late watch event may queue another check, so no assertion on pending.
+    await a.svc.nudge(file);
+    expect(server.sync.sessions.get(sid)!.head_seq).toBe(3);
+
+    await a.svc.close();
+    expect((await a.svc.status()).sync).toBeUndefined();
+    expect(logs.filter((l) => l.includes("failed"))).toEqual([]);
+  });
+
+  test("without watching, a nudge with a path pushes directly", async () => {
+    const a = await signedIn();
+    await a.svc.setup({ passphrase: PASS });
+    const file = join(a.root, "s.jsonl");
+    await writeFile(file, `{"type":"session","version":3,"id":"${sid}","timestamp":"2026-11-13T10:38:17.712Z","cwd":"/p"}\n${line("e1", null)}`);
+    expect(await a.svc.nudge(file)).toEqual({ watching: false, pending: 0 });
+    expect(server.sync.sessions.get(sid)?.head_seq).toBe(1);
+    expect(await a.svc.nudge()).toEqual({ watching: false, pending: 0 });
+  });
+
+  test("signed out or revoked stops retrying, other errors don't", () => {
+    expect(stopsAutoPush(new NotSignedInError())).toBe(true);
+    expect(stopsAutoPush(new RevokedDeviceError())).toBe(true);
+    expect(stopsAutoPush(new Error("fetch failed"))).toBe(false);
+  });
+
+  test("signing out stops it", async () => {
+    const a = await signedIn({ log: () => {} });
+    await a.svc.setup({ passphrase: PASS });
+    await a.svc.logout();
+    expect((await a.svc.status()).sync).toBeUndefined();
   });
 });

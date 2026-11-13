@@ -256,7 +256,7 @@ Quota: 100 MB of stored chunks per user.
 
 Local state lives in `~/.local/share/agentsessionvault/`, one small JSON file per session, written atomically: the remote `session_id`, the last `seq` pulled and the byte offset of the local file already uploaded. The set of entry ids seen is rebuilt from the session file itself. Plain JSON is enough for the PoC, and `bun:sqlite` can take over if it isn't.
 
-Push, triggered by the daemon watching the session directories and by nudges from the Pi extension after each turn and on shutdown, debounced to a few seconds. The extension only makes sync quicker. Sessions written without it still get pushed:
+Push, triggered by the daemon watching the session directories and by nudges from the Pi extension after each turn and on shutdown, debounced to a few seconds. The extension only makes sync quicker. Sessions written without it still get pushed (since milestone 3: the daemon watches Pi's `--<cwd>--/*.jsonl` from unlocking on and pushes a file 2 seconds after its last change. On unlocking it pushes every file whose size differs from what it last pushed. Failures retry with backoff from 5 seconds to 5 minutes, and stop on a sign-out or revoked device until the next unlock. `_unmapped/` isn't watched, since Pi doesn't open sessions there. The `nudge` socket method pushes one file, or everything queued, right away):
 
 1. Read the local file from the stored offset. Hold back the last line if it doesn't end in `\n`, since Pi may still be writing it.
 2. If the file shrank or the bytes before the offset changed (a migration or rewrite), push a `snapshot` instead of an `append`.

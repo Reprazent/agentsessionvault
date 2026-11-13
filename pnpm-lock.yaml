@@ -23,6 +23,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@agentsessionvault/adapter-pi':
+        specifier: workspace:*
+        version: link:../../packages/adapter-pi
       '@agentsessionvault/client':
         specifier: workspace:*
         version: link:../../packages/client

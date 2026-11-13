@@ -174,6 +174,7 @@ describe("daemon handlers", () => {
     await h.passphrase!({ recoveryKey: "r", generate: true });
     await h.sessions!({});
     await h.projects!({});
+    await h.nudge!({ path: "/s.jsonl" });
     await h.map!({ project: "app", dir: "/x" });
     await h.devices!({});
     await h.revokeDevice!({ id: "abcd" });
@@ -197,6 +198,7 @@ describe("daemon handlers", () => {
       ["changePassphrase", [{ recoveryKey: "r", generate: true }]],
       ["sessions", []],
       ["projects", []],
+      ["nudge", ["/s.jsonl"]],
       ["mapProject", ["app", "/x"]],
       ["devices", []],
       ["revokeDevice", ["abcd"]],
