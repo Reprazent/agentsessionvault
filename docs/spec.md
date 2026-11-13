@@ -75,6 +75,8 @@ Not protecting against:
 
 One process per machine talks to the network: the `agentsessionvault` daemon (the CLI in daemon mode). It holds the keys, does all crypto and format work, watches session files and runs push and pull. Harness integrations (the Pi extension, later the Claude Code hooks and OpenCode plugin) are thin clients. They talk to the daemon over a Unix socket (`$XDG_RUNTIME_DIR/agentsessionvault.sock`, or under the state directory, mode 0600) to nudge a push after a turn, show status, and pass through `/vault` commands. They never see keys or tokens. The daemon lives as long as the harnesses using it. The first harness client starts it, every client keeps a socket connection open, and the daemon pushes what's pending and exits shortly after the last client disconnects. Two Pi windows share one daemon, so the passphrase is only needed once while either is open. Nothing syncs while no harness is running, and the daemon catches up on its next start.
 
+`agentsessionvault daemon` runs the daemon in the foreground, outside any harness, until it's stopped. It counts as a client itself, so it stays up regardless of harness connections, and it asks for the passphrase on the terminal if `AGENTSESSIONVAULT_PASSPHRASE` isn't set. The other CLI commands (`push`, `pull`, `status`, ...) are socket clients like the harness integrations. This is what milestone 2 uses before the Pi extension exists, and it stays useful for debugging. It is not a service install.
+
 The server checks auth and row ownership and stores bytes. Edge Functions only exist for things RLS can't express: the storage quota and purging deleted objects.
 
 ## Monorepo layout
@@ -144,7 +146,7 @@ recovery key (random, shown once) ──────────────┴�
 
 Adding a device: sign in with Supabase Auth, type the passphrase (or the recovery key), done. The device registers itself in `devices` so it shows up in `/vault devices`.
 
-Removing a device: mark it revoked. Each device row records the Supabase Auth session it signed in with, and every RLS policy checks that the JWT's `session_id` claim belongs to an active device. Revocation therefore takes effect immediately, including for access tokens that are already issued, and needs no Edge Function. The device still holds the account key for what it already downloaded.
+Removing a device: mark it revoked. Each device row records the Supabase Auth session it signed in with, and every RLS policy checks that the JWT's `session_id` claim belongs to an active device. Revocation therefore takes effect immediately, including for access tokens that are already issued, and needs no Edge Function. `auth_session_id` is unique, so a revoked session can't register itself again. The device still holds the account key for what it already downloaded, and whoever has it can sign in again by email and register as a new device. That's inside the "compromised device" limit of the threat model: the email account is the real gate, and `/vault rotate` is the answer.
 
 If the device was stolen rather than retired, `/vault rotate` creates a new account key and re-locks every session key with it. This is weaker than it sounds: the session keys themselves don't change, so a thief who already unlocked them can read old chunks and also any future chunks of those sessions, if they ever get at the ciphertext again. Fixing that means starting a new session key for each live session on rotation, which the `key_id` in the chunk header leaves room for. Both `/vault rotate` and that fix come after the PoC.
 
@@ -207,7 +209,9 @@ chunks (
 )
 ```
 
-RLS on every table is `user_id = (select auth.uid())` plus the active-device check, granted `to authenticated` only, with one policy per operation. `chunks` carries its own `user_id` so the policy needs no join, and it only has select and insert policies, which makes it append-only. `head_seq` only changes through the commit RPC, which is `security invoker` with `set search_path = ''`. Foreign keys cascade on delete so removing an account removes its rows, and the purge function removes its objects through the Storage API.
+RLS on every table is `user_id = (select auth.uid())` plus the active-device check, granted `to authenticated` only, with one policy per operation. The active-device check is a `security definer` function in a non-exposed `private` schema, so policies on `devices` don't recurse. Two exceptions skip the device check, because they happen before a device exists: inserting and reading your own `accounts` row (setup and unlock), and a session registering itself as an active device. Column-level grants keep `user_id`, `head_seq` and other server-owned columns out of client updates.
+
+`chunks` carries its own `user_id` so the policy needs no join. Clients can only select from it. Inserts go through `commit_chunk(session_id, seq, object_name, kind, size)`, a `security definer` function with `set search_path = ''`. It takes the device from the JWT rather than an argument, locks the session row, requires `seq = head_seq + 1` (otherwise it raises `23505`, like a unique violation), checks the object name is `<user_id>/<session_id>/<seq>-<random>.bin`, inserts the row and bumps `head_seq`. Foreign keys cascade on delete so removing an account removes its rows, and the purge function removes its objects through the Storage API.
 
 The block above is shorthand. The migrations follow the SQL style guide: lowercase keywords, quoted identifiers, semicolons.
 
@@ -261,7 +265,7 @@ Pull, triggered by Realtime inserts on `chunks` for my sessions, on startup, and
 
 Local file placement: a pulled session is written under the local directory that matches its project. Matching goes by `project_tag` (git remote first, path relative to `$HOME` as the fallback). If no local checkout matches, the session goes to an `_unmapped/` folder and `/vault map` fixes it later. Paths inside entries are left alone in v1. Rewriting tool arguments is how you corrupt a transcript.
 
-Deletes: `/resume` delete in Pi removes the file. The extension notices and sets `deleted_at`. Other devices move their copy to the trash, they don't delete it outright. Objects get purged after 30 days.
+Deletes: `/resume` delete in Pi removes the file. The daemon notices and sets `deleted_at`. Other devices move their copy to the trash, they don't delete it outright. Objects get purged after 30 days.
 
 ## Harness-neutral format (later, but shapes v1)
 
@@ -322,13 +326,16 @@ Deviations, on purpose:
 - Business side: hosted for others, or a personal tool that happens to be open source? The answer changes how much effort goes into the auth flows, quotas and billing.
   Answer: Let's go with hosted for others, but I suspect I will be the only user.
 - With open signups the project holds other people's data. Does that need a privacy note and an account deletion command before anyone else signs up?
+  Proposal: yes. Keep signups closed until both exist.
+- Local development: the Supabase CLI's local stack still needs Docker. pgTAP tests run against the hosted project (`pnpm test:db`), and `pnpm test:db:local` gives a quick approximation in PGlite with stubbed `auth`/`storage` schemas and a minimal pgTAP shim.
+- Email: the default Supabase sender is fine for the PoC. It needs custom SMTP before others sign up.
 - Sequence numbers: two devices pushing to one session contend for `head_seq + 1`. Since Pi entries merge by id, a server-assigned cursor would remove the contention.
   Answer: keep sequential for the PoC.
 
 ## First milestones
 
 1. `packages/crypto` with test vectors, plus `supabase/` migrations with RLS tests. No harness code yet.
-2. CLI: login, setup, unlock, and push/pull of one Pi session file by hand.
+2. CLI: login, setup, unlock, `daemon`, and push/pull of one Pi session file by hand through the socket.
 3. Daemon: file watching, Realtime pull, the socket. Then the Pi extension as a thin client: status line, nudges, `/vault` commands.
 4. Two machines, one week of daily use. Fix whatever annoys me.
 5. Neutral format and the Claude Code adapter, read-only first (view a Pi session's history from Claude Code).

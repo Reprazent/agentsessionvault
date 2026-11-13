@@ -1,5 +1,16 @@
 {
   "name": "agentsessionvault",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "pnpm -r --parallel typecheck",
+    "test:db": "supabase test db --remote",
+    "test:db:local": "bun scripts/db-check-pglite.ts"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.16",
+    "@types/bun": "^1.4.4",
+    "typescript": "^7.0.2"
+  }
 }
