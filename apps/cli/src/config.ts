@@ -1,3 +1,4 @@
+import { daemonPaths } from "@agentsessionvault/daemon-client";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -17,16 +18,13 @@ export interface Config {
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
   const home = homedir();
-  const stateDir =
-    env.AGENTSESSIONVAULT_HOME ?? join(env.XDG_DATA_HOME ?? join(home, ".local", "share"), "agentsessionvault");
+  const { stateDir, socketPath } = daemonPaths(env);
   return {
     supabaseUrl: env.AGENTSESSIONVAULT_SUPABASE_URL ?? DEFAULT_SUPABASE_URL,
     publishableKey: env.AGENTSESSIONVAULT_PUBLISHABLE_KEY ?? DEFAULT_PUBLISHABLE_KEY,
     stateDir,
     piSessionsDir:
       env.AGENTSESSIONVAULT_PI_SESSIONS ?? join(env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent"), "sessions"),
-    socketPath:
-      env.AGENTSESSIONVAULT_SOCKET ??
-      (env.XDG_RUNTIME_DIR ? join(env.XDG_RUNTIME_DIR, "agentsessionvault.sock") : join(stateDir, "daemon.sock")),
+    socketPath,
   };
 }

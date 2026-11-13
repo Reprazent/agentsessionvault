@@ -13,7 +13,7 @@
 // These links use the implicit flow, so this doesn't exercise PKCE.
 import { createClient } from "@supabase/supabase-js";
 import { loadConfig } from "../apps/cli/src/config.ts";
-import { DaemonClient } from "../apps/cli/src/protocol.ts";
+import { DaemonClient } from "../packages/daemon-client/src/index.ts";
 import type { Status } from "../apps/cli/src/service.ts";
 
 const email = process.argv[2];

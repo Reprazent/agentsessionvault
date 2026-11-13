@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config.ts";
 import { handlers } from "../src/daemon.ts";
-import { DaemonClient, DaemonNotRunningError, type DaemonServer, RemoteError, ping, serve } from "../src/protocol.ts";
+import { DaemonClient, DaemonNotRunningError, type DaemonServer, RemoteError, lockFile, ping, serve } from "../src/protocol.ts";
 import type { VaultService } from "../src/service.ts";
 
 const servers: DaemonServer[] = [];
@@ -17,8 +17,8 @@ async function sockPath() {
   return join(await mkdtemp(join(tmpdir(), "asv-sock-")), "sub", "d.sock");
 }
 
-async function start(path: string, h: Parameters<typeof serve>[1]) {
-  const s = await serve(path, h);
+async function start(path: string, h: Parameters<typeof serve>[1], opts?: Parameters<typeof serve>[2]) {
+  const s = await serve(path, h, opts);
   servers.push(s);
   return s;
 }
@@ -129,6 +129,70 @@ describe("socket protocol", () => {
     const second = await start(path, { ping: async () => "pong" });
     expect(await ping(path)).toBe(true);
     await expect(serve(path, {})).rejects.toThrow("already running");
+  });
+});
+
+describe("lifetime", () => {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  test("hello returns version and pid, and names the client", async () => {
+    const path = await sockPath();
+    const s = await start(path, {}, { version: "1.2.3" });
+    const c = await DaemonClient.connect(path);
+    expect(await c.call("hello", { client: "pi" })).toEqual({ version: "1.2.3", pid: process.pid });
+    const anon = await DaemonClient.connect(path);
+    expect(await anon.call("hello")).toEqual({ version: "1.2.3", pid: process.pid });
+    expect(s.clientNames()).toEqual(["pi"]);
+    c.close();
+    anon.close();
+  });
+
+  test("goes idle without clients, from the start and after the last leaves", async () => {
+    const path = await sockPath();
+    let idle = 0;
+    await start(path, { ping: async () => "pong" }, { idleMs: 60, onIdle: () => idle++ });
+    await sleep(100);
+    expect(idle).toBe(1);
+    const a = await DaemonClient.connect(path);
+    const b = await DaemonClient.connect(path);
+    await sleep(100);
+    a.close();
+    await sleep(100);
+    expect(idle).toBe(1);
+    // Leaving and coming back within idleMs cancels it.
+    b.close();
+    await sleep(20);
+    const c = await DaemonClient.connect(path);
+    await sleep(100);
+    expect(idle).toBe(1);
+    let closed = false;
+    c.onClose(() => (closed = true));
+    c.close();
+    await sleep(100);
+    expect(idle).toBe(2);
+    expect(closed).toBe(true);
+    // Registering after the fact still fires, and calls fail.
+    c.onClose(() => (closed = false));
+    expect(closed).toBe(false);
+    await expect(c.call("ping")).rejects.toThrow("closed the connection");
+  });
+
+  test("lock files: exclusive, waiting, stale ones taken over", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "asv-lock-"));
+    const path = join(dir, "x.lock");
+    const unlock = await lockFile(path);
+    expect(await readFile(path, "utf8")).toBe(String(process.pid));
+    await expect(lockFile(path, 50)).rejects.toThrow(`held by pid ${process.pid}`);
+    const waiting = lockFile(path, 2000);
+    await sleep(50);
+    await unlock();
+    await (await waiting)();
+    // A dead pid, or garbage, doesn't hold it.
+    for (const stale of ["999999999", "nonsense", "-1"]) {
+      await writeFile(path, stale);
+      await (await lockFile(path, 50))();
+    }
+    await expect(lockFile(join(dir, "missing", "x.lock"))).rejects.toThrow("ENOENT");
   });
 });
 

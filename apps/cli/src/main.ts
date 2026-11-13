@@ -6,7 +6,8 @@ import { parseArgs } from "node:util";
 import { type Config, loadConfig } from "./config.ts";
 import { handlers, unlockAtStart } from "./daemon.ts";
 import { prompt } from "./prompt.ts";
-import { DaemonClient, serve } from "./protocol.ts";
+import { AlreadyRunningError, DaemonClient, serve } from "./protocol.ts";
+import { VERSION } from "./version.ts";
 import { type DeviceInfo, type Status, VaultService } from "./service.ts";
 import type { ProjectSummary, PullResult, PushResult, SessionSummary } from "@agentsessionvault/sync";
 import { resolve } from "node:path";
@@ -14,7 +15,9 @@ import { resolve } from "node:path";
 const USAGE = `agentsessionvault: end-to-end encrypted sync for agent sessions
 
 Usage:
-  agentsessionvault daemon                  run the daemon in the foreground
+  agentsessionvault daemon [--idle-exit [--idle-seconds N]]
+                                            run the daemon in the foreground; with
+                                            --idle-exit, stop N s (30) after the last client
   agentsessionvault login [email] [--paste] sign in via the emailed link (--paste: no local server)
   agentsessionvault setup [--generate]      first device: create the account
   agentsessionvault unlock [--recovery]     unlock this device
@@ -33,21 +36,42 @@ Usage:
 Every command except daemon talks to a running daemon.
 `;
 
-/** `agentsessionvault daemon`: runs in the foreground until stopped. */
-async function runDaemon(cfg: Config): Promise<never> {
+/**
+ * `agentsessionvault daemon`: runs in the foreground until stopped. With
+ * --idle-exit (how harness clients start it), it exits once no client has
+ * been connected for --idle-seconds (default 30).
+ */
+async function runDaemon(cfg: Config, idleExit: boolean, idleSeconds: number): Promise<never> {
   const log = (m: string) => process.stderr.write(`${new Date().toISOString()} ${m}\n`);
   const svc = new VaultService(cfg, undefined, { log });
   await svc.init();
-  const server = await serve(cfg.socketPath, handlers(svc, log), log);
-  log(`listening on ${cfg.socketPath}`);
-  const stop = async () => {
-    log("stopping");
+  let server: Awaited<ReturnType<typeof serve>>;
+  try {
+    server = await serve(cfg.socketPath, handlers(svc, log), {
+      log,
+      version: VERSION,
+      ...(idleExit ? { idleMs: idleSeconds * 1000, onIdle: () => void stop(`no clients for ${idleSeconds}s`) } : {}),
+    });
+  } catch (e) {
+    // Lost a start race to another daemon: that one serves the clients.
+    if (e instanceof AlreadyRunningError) {
+      log(e.message);
+      process.exit(0);
+    }
+    throw e;
+  }
+  log(`listening on ${cfg.socketPath} (pid ${process.pid}, version ${VERSION}${idleExit ? `, exits after ${idleSeconds}s without clients` : ""})`);
+  let stopping = false;
+  const stop = async (why: string) => {
+    if (stopping) return;
+    stopping = true;
+    log(`stopping: ${why}`);
     await server.close();
     await svc.close();
     process.exit(0);
   };
-  process.on("SIGINT", stop);
-  process.on("SIGTERM", stop);
+  process.on("SIGINT", () => void stop("SIGINT"));
+  process.on("SIGTERM", () => void stop("SIGTERM"));
   await unlockAtStart(svc, log, {
     env: process.env,
     isTTY: !!process.stdin.isTTY,
@@ -104,6 +128,8 @@ export async function main(argv: string[]): Promise<number> {
       out: { type: "string", short: "o" },
       json: { type: "boolean" },
       paste: { type: "boolean" },
+      "idle-exit": { type: "boolean" },
+      "idle-seconds": { type: "string" },
     },
   });
   const [cmd, ...args] = positionals;
@@ -114,7 +140,11 @@ export async function main(argv: string[]): Promise<number> {
 
   switch (cmd) {
     case "daemon":
-      await runDaemon(loadConfig());
+      {
+        const secs = Number(values["idle-seconds"] ?? 30);
+        if (!Number.isFinite(secs) || secs < 0) throw new TypeError("--idle-seconds must be a number of seconds");
+        await runDaemon(loadConfig(), values["idle-exit"] === true, secs);
+      }
       return 0;
 
     case "status":

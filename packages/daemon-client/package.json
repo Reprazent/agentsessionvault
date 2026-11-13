@@ -1,0 +1,12 @@
+{
+  "name": "@agentsessionvault/daemon-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Talks to the agentsessionvault daemon over its socket, starting it if needed. node: built-ins only, for harness extensions.",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc -p ."
+  }
+}

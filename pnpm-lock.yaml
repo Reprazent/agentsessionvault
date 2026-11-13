@@ -32,6 +32,9 @@ importers:
       '@agentsessionvault/crypto':
         specifier: workspace:*
         version: link:../../packages/crypto
+      '@agentsessionvault/daemon-client':
+        specifier: workspace:*
+        version: link:../../packages/daemon-client
       '@agentsessionvault/sync':
         specifier: workspace:*
         version: link:../../packages/sync
@@ -54,6 +57,8 @@ importers:
         version: 2.119.0
 
   packages/crypto: {}
+
+  packages/daemon-client: {}
 
   packages/sync:
     dependencies:

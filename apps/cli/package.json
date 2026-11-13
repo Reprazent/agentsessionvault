@@ -15,6 +15,7 @@
     "@agentsessionvault/adapter-pi": "workspace:*",
     "@agentsessionvault/client": "workspace:*",
     "@agentsessionvault/crypto": "workspace:*",
+    "@agentsessionvault/daemon-client": "workspace:*",
     "@agentsessionvault/sync": "workspace:*",
     "@supabase/supabase-js": "^2.119.0"
   }
