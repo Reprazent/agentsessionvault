@@ -20,7 +20,7 @@ No Docker needed.
 | `pnpm test` | Runs all `bun test` suites with coverage. Fails under 95% lines or functions. |
 | `pnpm typecheck` | Runs `tsc` in every workspace package. |
 | `pnpm test:db:local` | Applies `supabase/migrations/` and runs `supabase/tests/database/` in PGlite. |
-| `pnpm test:db` | Runs the pgTAP tests against the linked hosted Supabase project. |
+| `pnpm test:db` | Runs the pgTAP tests against the linked hosted Supabase project, without Docker. |
 
 Run a single package or file with bun directly:
 
@@ -39,11 +39,20 @@ It's a quick feedback loop, not the source of truth. Real Supabase auth, storage
 
 ### `pnpm test:db` (hosted)
 
-Needs a linked project:
+Needs a linked project and the database password in `SUPABASE_DB_PASSWORD`. Put it in `mise.local.toml` (gitignored):
+
+    [env]
+    SUPABASE_DB_PASSWORD = "..."
+
+Then:
 
     supabase login
     supabase link --project-ref <ref>
-    supabase db push
-    pnpm test:db
+    supabase db push --remote
+    pnpm test:db          # asks for confirmation; pass --yes to skip it
 
-The tests run in a transaction and roll back, but they still execute against that database. Use a dev project or branch, not production.
+`supabase test db --remote` still runs `pg_prove` in Docker, so `scripts/db-test-remote.ts` sends each test file through `supabase db query --remote` instead. That returns a single result set, so the script swaps `finish()` for a read of pgTAP's counters. It reports passed, run and planned counts per file, but not which test failed. Use `pnpm test:db:local` or the SQL editor for that. Test files must end with `select * from finish(); rollback;`.
+
+The tests run in a transaction and roll back, but they still execute against that database. Use a dev project, not production.
+
+`supabase db advisors --remote` should report only one warning: `commit_chunk` is a `security definer` function that signed-in users can call. That's on purpose. It's the only way to append chunks, and it checks the caller itself.

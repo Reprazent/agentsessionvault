@@ -4,3 +4,4 @@ coverage/
 .env
 supabase/.temp/
 supabase/.branches/
+mise.local.toml

@@ -5,7 +5,7 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "pnpm -r --parallel typecheck",
-    "test:db": "supabase test db --remote",
+    "test:db": "bun scripts/db-test-remote.ts",
     "test:db:local": "bun scripts/db-check-pglite.ts"
   },
   "devDependencies": {
