@@ -32,7 +32,7 @@ describe("envelope", () => {
   for (const field of ["userId", "rowId", "field"] as const) {
     test(`moving to another ${field} fails`, async () => {
       const env = await seal(key, utf8("x"), ctx);
-      expect(open(key, env, { ...ctx, [field]: "other" })).rejects.toThrow(DecryptionError);
+      await expect(open(key, env, { ...ctx, [field]: "other" })).rejects.toThrow(DecryptionError);
     });
   }
 
@@ -40,16 +40,16 @@ describe("envelope", () => {
     const env = await seal(key, utf8("hello"), ctx);
     const data = fromBase64(env.data);
     data[0]! ^= 1;
-    expect(open(key, { ...env, data: toBase64(data) }, ctx)).rejects.toThrow(DecryptionError);
-    expect(open(key, { ...env, key_id: "account-key-v2" }, ctx)).rejects.toThrow(DecryptionError);
+    await expect(open(key, { ...env, data: toBase64(data) }, ctx)).rejects.toThrow(DecryptionError);
+    await expect(open(key, { ...env, key_id: "account-key-v2" }, ctx)).rejects.toThrow(DecryptionError);
   });
 
   test("malformed envelopes fail cleanly", async () => {
     const env = await seal(key, utf8("hello"), ctx);
-    expect(open(key, { ...env, algorithm: "X" as "A256GCM" }, ctx)).rejects.toThrow(DecryptionError);
-    expect(open(key, { ...env, nonce: "!!" }, ctx)).rejects.toThrow(DecryptionError);
-    expect(open(key, { ...env, tag: toBase64(new Uint8Array(4)) }, ctx)).rejects.toThrow(DecryptionError);
-    expect(seal(key, utf8("x"), ctx, new Uint8Array(8))).rejects.toThrow(RangeError);
+    await expect(open(key, { ...env, algorithm: "X" as "A256GCM" }, ctx)).rejects.toThrow(DecryptionError);
+    await expect(open(key, { ...env, nonce: "!!" }, ctx)).rejects.toThrow(DecryptionError);
+    await expect(open(key, { ...env, tag: toBase64(new Uint8Array(4)) }, ctx)).rejects.toThrow(DecryptionError);
+    await expect(seal(key, utf8("x"), ctx, new Uint8Array(8))).rejects.toThrow(RangeError);
   });
 
   test("json helpers", async () => {

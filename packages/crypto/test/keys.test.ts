@@ -19,8 +19,8 @@ describe("derivePassphraseKey", () => {
   });
 
   test("rejects weak parameters", async () => {
-    expect(k.derivePassphraseKey("x", salt, 1000)).rejects.toThrow(RangeError);
-    expect(k.derivePassphraseKey("x", salt.subarray(1), 600_000)).rejects.toThrow(RangeError);
+    await expect(k.derivePassphraseKey("x", salt, 1000)).rejects.toThrow(RangeError);
+    await expect(k.derivePassphraseKey("x", salt.subarray(1), 600_000)).rejects.toThrow(RangeError);
   });
 });
 
@@ -45,8 +45,8 @@ describe("HKDF subkeys", () => {
   });
 
   test("keys have to be 32 bytes", async () => {
-    expect(k.deriveAesKey(ikm.subarray(1), k.Purpose.encryptMeta)).rejects.toThrow(RangeError);
-    expect(k.importSessionKey(ikm.subarray(1))).rejects.toThrow(RangeError);
+    await expect(k.deriveAesKey(ikm.subarray(1), k.Purpose.encryptMeta)).rejects.toThrow(RangeError);
+    await expect(k.importSessionKey(ikm.subarray(1))).rejects.toThrow(RangeError);
   });
 
   test("derived keys are not extractable", async () => {

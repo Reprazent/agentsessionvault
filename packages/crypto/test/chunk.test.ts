@@ -51,7 +51,7 @@ describe("chunk", () => {
   ] as const) {
     test(`moving to another ${name} fails`, async () => {
       const obj = await c.encryptChunk(key, payload, ctx);
-      expect(c.decryptChunk(key, obj, { ...ctx, ...change })).rejects.toThrow(DecryptionError);
+      await expect(c.decryptChunk(key, obj, { ...ctx, ...change })).rejects.toThrow(DecryptionError);
     });
   }
 
@@ -59,7 +59,7 @@ describe("chunk", () => {
     for (const i of [6, 10, c.HEADER_BYTES + 1]) {
       const obj = await c.encryptChunk(key, payload, ctx);
       obj[i]! ^= 1;
-      expect(c.decryptChunk(key, obj, ctx)).rejects.toThrow(DecryptionError);
+      await expect(c.decryptChunk(key, obj, ctx)).rejects.toThrow(DecryptionError);
     }
   });
 
@@ -75,9 +75,9 @@ describe("chunk", () => {
   });
 
   test("validates inputs", async () => {
-    expect(c.encryptChunk(key, payload, ctx, new Uint8Array(3))).rejects.toThrow(RangeError);
-    expect(c.encryptChunk(key, payload, { ...ctx, kind: "x" as "append" })).rejects.toThrow(TypeError);
-    expect(c.encryptChunk(key, payload, { ...ctx, keyId: 256 })).rejects.toThrow(RangeError);
+    await expect(c.encryptChunk(key, payload, ctx, new Uint8Array(3))).rejects.toThrow(RangeError);
+    await expect(c.encryptChunk(key, payload, { ...ctx, kind: "x" as "append" })).rejects.toThrow(TypeError);
+    await expect(c.encryptChunk(key, payload, { ...ctx, keyId: 256 })).rejects.toThrow(RangeError);
   });
 
   test("compresses", async () => {

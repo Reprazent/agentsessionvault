@@ -28,24 +28,24 @@ describe("account keys", async () => {
   });
 
   test("wrong secrets fail", async () => {
-    expect(a.unlockWithPassphrase(userId, row, pass + "!")).rejects.toThrow(DecryptionError);
-    expect(a.unlockWithRecoveryKey(userId, row, formatRecoveryKey(new Uint8Array(32)))).rejects.toThrow(DecryptionError);
+    await expect(a.unlockWithPassphrase(userId, row, pass + "!")).rejects.toThrow(DecryptionError);
+    await expect(a.unlockWithRecoveryKey(userId, row, formatRecoveryKey(new Uint8Array(32)))).rejects.toThrow(DecryptionError);
   });
 
   test("a row copied to another user does not unlock", async () => {
-    expect(a.unlockWithPassphrase("00000000-0000-4000-8000-000000000002", row, pass)).rejects.toThrow(DecryptionError);
+    await expect(a.unlockWithPassphrase("00000000-0000-4000-8000-000000000002", row, pass)).rejects.toThrow(DecryptionError);
   });
 
   test("the passphrase copy cannot be swapped with the recovery copy", async () => {
     const swapped = { ...row, account_key_by_pass: row.account_key_by_recovery };
-    expect(a.unlockWithPassphrase(userId, swapped, pass)).rejects.toThrow(DecryptionError);
+    await expect(a.unlockWithPassphrase(userId, swapped, pass)).rejects.toThrow(DecryptionError);
   });
 
   test("weak passphrases and unknown KDFs are refused", async () => {
-    expect(a.createAccount(userId, "too short")).rejects.toThrow(a.WeakPassphraseError);
+    await expect(a.createAccount(userId, "too short")).rejects.toThrow(a.WeakPassphraseError);
     expect(() => a.checkPassphrase("\u{1F600}".repeat(15))).toThrow(a.WeakPassphraseError);
     const odd = { ...row, kdf: { ...row.kdf, alg: "md5" as "pbkdf2-sha256" } };
-    expect(a.unlockWithPassphrase(userId, odd, pass)).rejects.toThrow(TypeError);
+    await expect(a.unlockWithPassphrase(userId, odd, pass)).rejects.toThrow(TypeError);
   });
 
   test("changing the passphrase keeps the account key and recovery copy", async () => {
@@ -53,7 +53,7 @@ describe("account keys", async () => {
     expect(next.kdf.salt).not.toBe(row.kdf.salt);
     expect(next.account_key_by_recovery).toEqual(row.account_key_by_recovery);
     expect(await a.unlockWithPassphrase(userId, next, "another fine passphrase")).toEqual(accountKey);
-    expect(a.unlockWithPassphrase(userId, next, pass)).rejects.toThrow(DecryptionError);
-    expect(a.changePassphrase(userId, row, accountKey, "short")).rejects.toThrow(a.WeakPassphraseError);
+    await expect(a.unlockWithPassphrase(userId, next, pass)).rejects.toThrow(DecryptionError);
+    await expect(a.changePassphrase(userId, row, accountKey, "short")).rejects.toThrow(a.WeakPassphraseError);
   });
 });
