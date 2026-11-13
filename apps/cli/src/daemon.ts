@@ -58,6 +58,11 @@ export function handlers(svc: VaultService, log: (m: string) => void): Record<st
     },
     sessions: () => svc.sessions(),
     devices: () => svc.devices(),
+    revokeDevice: async (p) => {
+      const d = await svc.revokeDevice(str(p, "id"));
+      log(`revoked device ${d.id}`);
+      return d;
+    },
   };
   // Always async, so validation errors reject instead of throwing.
   return Object.fromEntries(Object.entries(h).map(([k, f]) => [k, async (p: Record<string, unknown>) => f(p)]));

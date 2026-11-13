@@ -17,6 +17,8 @@ export interface DeviceRow {
   auth_session_id: string;
   created_at: string;
   last_seen_at: string | null;
+  revoked_at: string | null;
+  revoked_by: string | null;
 }
 
 export interface VaultClientOptions {
@@ -131,7 +133,7 @@ export class VaultClient {
     const session = await this.requireSession();
     const { data, error } = await this.supabase
       .from("devices")
-      .select("id, status, name_enc, auth_session_id, created_at, last_seen_at")
+      .select("id, status, name_enc, auth_session_id, created_at, last_seen_at, revoked_at, revoked_by")
       .eq("auth_session_id", jwtSessionId(session.access_token))
       .maybeSingle();
     if (error) throw error;
@@ -154,10 +156,20 @@ export class VaultClient {
   async listDevices(): Promise<DeviceRow[]> {
     const { data, error } = await this.supabase
       .from("devices")
-      .select("id, status, name_enc, auth_session_id, created_at, last_seen_at")
+      .select("id, status, name_enc, auth_session_id, created_at, last_seen_at, revoked_at, revoked_by")
       .order("created_at");
     if (error) throw error;
     return data as unknown as DeviceRow[];
+  }
+
+  /**
+   * Revokes a device. The database records when and by whom, and deletes its
+   * Auth session so it can't refresh. Final: revoked devices stay revoked.
+   */
+  async revokeDevice(id: string): Promise<void> {
+    const { data, error } = await this.supabase.from("devices").update({ status: "revoked" }).eq("id", id).select("id");
+    if (error) throw error;
+    if (!data?.length) throw new NotFoundError(`device ${id} not found`);
   }
 
   async touchDevice(id: string): Promise<void> {

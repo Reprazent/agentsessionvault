@@ -57,17 +57,23 @@ isOneToOne: false
                   ]
                 },"devices": {
                   Row: {
-                    "auth_session_id": string,"created_at": string,"id": string,"last_seen_at": string | null,"name_enc": NonNullable<Json>,"status": string,"user_id": string
+                    "auth_session_id": string,"created_at": string,"id": string,"last_seen_at": string | null,"name_enc": NonNullable<Json>,"revoked_at": string | null,"revoked_by": string | null,"status": string,"user_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "auth_session_id": string,"created_at"?: string,"id"?: string,"last_seen_at"?: string | null,"name_enc": NonNullable<Json>,"status"?: string,"user_id": string
+                    "auth_session_id": string,"created_at"?: string,"id"?: string,"last_seen_at"?: string | null,"name_enc": NonNullable<Json>,"revoked_at"?: string | null,"revoked_by"?: string | null,"status"?: string,"user_id": string
                   }
                   Update: {
-                    "auth_session_id"?: string,"created_at"?: string,"id"?: string,"last_seen_at"?: string | null,"name_enc"?: NonNullable<Json>,"status"?: string,"user_id"?: string
+                    "auth_session_id"?: string,"created_at"?: string,"id"?: string,"last_seen_at"?: string | null,"name_enc"?: NonNullable<Json>,"revoked_at"?: string | null,"revoked_by"?: string | null,"status"?: string,"user_id"?: string
                   }
                   Relationships: [
                     {
+      foreignKeyName: "devices_revoked_by_fkey"
+      columns: ["revoked_by"]
+isOneToOne: false
+      referencedRelation: "devices"
+      referencedColumns: ["id"]
+    },{
       foreignKeyName: "devices_user_id_fkey"
       columns: ["user_id"]
 isOneToOne: false

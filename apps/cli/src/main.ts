@@ -24,6 +24,7 @@ Usage:
   agentsessionvault pull <session-id> [--out <path>]
   agentsessionvault sessions [--json]
   agentsessionvault devices [--json]
+  agentsessionvault devices revoke <device-id>
   agentsessionvault logout
 
 Every command except daemon talks to a running daemon.
@@ -240,10 +241,25 @@ export async function main(argv: string[]): Promise<number> {
       });
 
     case "devices":
+      if (args[0] === "revoke") {
+        const id = args[1];
+        if (!id) throw new TypeError("usage: agentsessionvault devices revoke <device-id>");
+        return withDaemon(async (c) => {
+          const d = await c.call<DeviceInfo>("revokeDevice", { id });
+          out(`revoked ${d.id} (${d.name ?? "unnamed"})${d.revoked_at ? ` at ${d.revoked_at}` : ""}`);
+          out("Its sign-in has lost access and can't refresh. It keeps what it already downloaded.");
+          return 0;
+        });
+      }
+      if (args[0]) throw new TypeError(`unknown devices subcommand: ${args[0]}`);
       return withDaemon(async (c) => {
         const list = await c.call<DeviceInfo[]>("devices");
         if (values.json) return (out(JSON.stringify(list, null, 2)), 0);
-        for (const d of list) out(`${d.current ? "*" : " "} ${d.id}  ${d.status.padEnd(7)}  ${d.name ?? "(unnamed)"}  last seen ${d.last_seen_at ?? "never"}`);
+        const byId = new Map(list.map((d) => [d.id, d.name ?? d.id.slice(0, 8)]));
+        for (const d of list) {
+          out(`${d.current ? "*" : " "} ${d.id}  ${d.status.padEnd(7)}  ${d.name ?? "(unnamed)"}  last seen ${d.last_seen_at ?? "never"}`);
+          if (d.revoked_at) out(`    revoked ${d.revoked_at}${d.revoked_by ? ` by ${byId.get(d.revoked_by) ?? d.revoked_by}` : ""}`);
+        }
         return 0;
       });
 

@@ -143,6 +143,7 @@ describe("daemon handlers", () => {
           if (name === "push") return { sessionId: "s", chunks: [], pulled: 1 };
           if (name === "pull") return { sessionId: "s", chunks: 0, path: "/p" };
           if (name === "unlock") return { deviceId: "d" };
+          if (name === "revokeDevice") return { id: "abcd" };
           return {};
         },
     },
@@ -172,6 +173,7 @@ describe("daemon handlers", () => {
     await h.passphrase!({ recoveryKey: "r", generate: true });
     await h.sessions!({});
     await h.devices!({});
+    await h.revokeDevice!({ id: "abcd" });
     expect(calls).toEqual([
       ["status", []],
       ["login", ["a@b.c", { callback: true }]],
@@ -192,6 +194,7 @@ describe("daemon handlers", () => {
       ["changePassphrase", [{ recoveryKey: "r", generate: true }]],
       ["sessions", []],
       ["devices", []],
+      ["revokeDevice", ["abcd"]],
     ]);
     expect(logs.some((l) => l.includes("merged 1 first"))).toBe(true);
   });

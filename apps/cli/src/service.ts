@@ -18,7 +18,7 @@ import { type DeviceRow, VaultClient, jwtSessionId } from "@agentsessionvault/cl
 import type { AccountKeys } from "@agentsessionvault/crypto";
 import type { Remote } from "@agentsessionvault/sync";
 import type { Session } from "@supabase/supabase-js";
-import { ConflictError, type PullResult, type PushResult, type SessionSummary, SyncEngine } from "@agentsessionvault/sync";
+import { ConflictError, NotFoundError, type PullResult, type PushResult, type SessionSummary, SyncEngine } from "@agentsessionvault/sync";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { hostname } from "node:os";
@@ -59,6 +59,8 @@ export interface DeviceInfo {
   current: boolean;
   created_at: string;
   last_seen_at: string | null;
+  revoked_at: string | null;
+  revoked_by: string | null;
 }
 
 /** What the service needs from the server. VaultClient in production, a fake in tests. */
@@ -75,6 +77,7 @@ export interface Backend {
   registerDevice(id: string, nameEnc: DeviceRow["name_enc"]): Promise<void>;
   listDevices(): Promise<DeviceRow[]>;
   touchDevice(id: string): Promise<void>;
+  revokeDevice(id: string): Promise<void>;
   remote(userId: string): Remote;
 }
 
@@ -299,8 +302,28 @@ export class VaultService {
           current: d.id === u.deviceId,
           created_at: d.created_at,
           last_seen_at: d.last_seen_at,
+          revoked_at: d.revoked_at,
+          revoked_by: d.revoked_by,
         };
       }),
     );
+  }
+
+  /**
+   * Revokes another device by id or unique id prefix. Its sign-in loses access
+   * at once and can't refresh; the row stays, for its chunks and the record.
+   */
+  async revokeDevice(ref: string): Promise<DeviceInfo> {
+    const r = ref.trim().toLowerCase();
+    if (r.length < 4) throw new TypeError("give at least 4 characters of the device id");
+    const devices = await this.devices();
+    const matches = devices.filter((d) => d.id.startsWith(r));
+    if (matches.length === 0) throw new NotFoundError(`no device matches ${ref}`);
+    if (matches.length > 1) throw new TypeError(`${ref} matches ${matches.length} devices; give more of the id`);
+    const d = matches[0]!;
+    if (d.current) throw new TypeError("that's this device; use `agentsessionvault logout`, or revoke it from another device");
+    if (d.status === "revoked") return d;
+    await this.client.revokeDevice(d.id);
+    return (await this.devices()).find((x) => x.id === d.id)!;
   }
 }

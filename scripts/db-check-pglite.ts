@@ -12,6 +12,9 @@ create role anon nologin; create role authenticated nologin; create role service
 create schema auth; create schema storage; create schema extensions;
 grant usage on schema auth, storage, extensions to anon, authenticated;
 create table auth.users (id uuid primary key, email text);
+create table auth.sessions (id uuid primary key, user_id uuid references auth.users on delete cascade, created_at timestamptz, updated_at timestamptz);
+create schema cron;
+create function cron.schedule(text, text, text) returns bigint language sql as $$ select 1::bigint $$;
 create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb $$;
 create function auth.uid() returns uuid language sql stable as $$ select nullif(auth.jwt() ->> 'sub', '')::uuid $$;
 grant execute on all functions in schema auth to anon, authenticated;
@@ -38,6 +41,8 @@ exception when others then
   return _ok(sqlstate = $2, $4 || case when sqlstate = $2 then '' else ' (got ' || sqlstate || ' ' || sqlerrm || ')' end); end $$;
 create function "is"(anyelement, anyelement, text) returns text language plpgsql as $$
 begin return _ok($1 is not distinct from $2, $3 || case when $1 is not distinct from $2 then '' else ' (got ' || coalesce($1::text,'null') || ')' end); end $$;
+create function isnt(anyelement, anyelement, text) returns text language plpgsql as $$
+begin return _ok($1 is distinct from $2, $3); end $$;
 create function finish() returns setof text language sql as $$
   select 'FAILED ' || description from extensions._tap where not ok
   union all select count(*) filter (where ok) || '/' || count(*) || ' passed' from extensions._tap $$;
@@ -46,7 +51,9 @@ grant execute on all functions in schema public to public;
 
 const sqlFiles = (dir: string) => readdirSync(dir).filter((f) => f.endsWith(".sql")).sort().map((f) => `${dir}/${f}`);
 
-for (const f of sqlFiles(`${repo}/supabase/migrations`)) await db.exec(readFileSync(f, "utf8"));
+// No pg_cron in PGlite; the cron schema above stands in for it.
+for (const f of sqlFiles(`${repo}/supabase/migrations`))
+  await db.exec(readFileSync(f, "utf8").replace(/create extension if not exists "pg_cron".*\n/, ""));
 
 let failed = 0;
 for (const f of sqlFiles(`${repo}/supabase/tests/database`)) {

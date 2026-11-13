@@ -74,10 +74,17 @@ class FakeBackend implements Backend {
   }
   async registerDevice(id: string, name_enc: DeviceRow["name_enc"]) {
     if (this.server.devices.some((d) => d.auth_session_id === this.sid())) throw new RevokedDeviceError();
-    this.server.devices.push({ id, user_id: USER, auth_session_id: this.sid(), name_enc, status: "active", created_at: new Date().toISOString(), last_seen_at: null });
+    this.server.devices.push({ id, user_id: USER, auth_session_id: this.sid(), name_enc, status: "active", created_at: new Date().toISOString(), last_seen_at: null, revoked_at: null, revoked_by: null });
   }
   async listDevices() {
     return this.active() ? this.server.devices.map((d) => ({ ...d })) : [];
+  }
+  async revokeDevice(id: string) {
+    const d = this.server.devices.find((x) => x.id === id);
+    if (!d || !this.active()) throw new Error("not found");
+    d.status = "revoked";
+    d.revoked_at = new Date().toISOString();
+    d.revoked_by = (await this.currentDevice())!.id;
   }
   async touchDevice(id: string) {
     const d = this.server.devices.find((x) => x.id === id)!;
@@ -320,6 +327,40 @@ describe("passphrase", () => {
     await expect(a.svc.changePassphrase({ current: PASS, passphrase: "yet another long passphrase" })).rejects.toBeInstanceOf(ConflictError);
     // b's change stands.
     expect((await (await signedIn()).svc.unlock({ passphrase: NEW })).unlocked).toBe(true);
+  });
+});
+
+describe("revokeDevice", () => {
+  async function twoDevices() {
+    const a = await signedIn();
+    await a.svc.setup({ passphrase: PASS });
+    const b = await signedIn();
+    await b.svc.unlock({ passphrase: PASS });
+    return { a, b, aId: (await a.svc.status()).deviceId!, bId: (await b.svc.status()).deviceId! };
+  }
+
+  test("by id prefix, recording who and when; b loses access", async () => {
+    const { a, b, aId, bId } = await twoDevices();
+    const d = await a.svc.revokeDevice(` ${bId.slice(0, 8).toUpperCase()} `);
+    expect(d).toMatchObject({ id: bId, status: "revoked", revoked_by: aId, current: false });
+    expect(d.revoked_at).not.toBeNull();
+    await expect(b.svc.devices()).resolves.toEqual([]);
+    // Again is a no-op.
+    expect((await a.svc.revokeDevice(bId)).revoked_at).toBe(d.revoked_at);
+  });
+
+  test("refuses this device, unknown, short and ambiguous ids", async () => {
+    const { a, aId } = await twoDevices();
+    await expect(a.svc.revokeDevice(aId)).rejects.toThrow("this device");
+    await expect(a.svc.revokeDevice("ffffffff")).rejects.toThrow("no device matches");
+    await expect(a.svc.revokeDevice("ab")).rejects.toThrow("at least 4");
+    server.devices[0]!.id = "aaaa0000-0000-4000-8000-000000000001";
+    server.devices[1]!.id = "aaaa0000-0000-4000-8000-000000000002";
+    await expect(a.svc.revokeDevice("aaaa")).rejects.toThrow("matches 2 devices");
+  });
+
+  test("needs unlocking", async () => {
+    await expect((await signedIn()).svc.revokeDevice("abcd")).rejects.toThrow();
   });
 });
 

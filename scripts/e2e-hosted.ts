@@ -147,8 +147,11 @@ try {
 
   // Revoke b from a; b loses access with its current token.
   const bId = (await b.svc.status()).deviceId!;
-  const { error: revokeError } = await (a.svc.client as VaultClient).supabase.from("devices").update({ status: "revoked" }).eq("id", bId);
-  check(!revokeError, "a revokes b");
+  const aId = (await a.svc.status()).deviceId!;
+  const revoked = await a.svc.revokeDevice(bId.slice(0, 8));
+  check(revoked.status === "revoked" && revoked.revoked_by === aId && !!revoked.revoked_at, "a revokes b by id prefix, recording who and when");
+  const { error: refreshError } = await (b.svc.client as VaultClient).supabase.auth.refreshSession();
+  check(!!refreshError, "b's sign-in can no longer refresh");
   check((await b.svc.client.remote(userId).listSessions()).length === 0, "b sees no sessions after revocation");
   threw = false;
   try {
@@ -170,7 +173,8 @@ try {
   if (userId) {
     const { data: objs } = await admin.storage.from("sessions").list(`${userId}/${sid}`);
     if (objs?.length) await admin.storage.from("sessions").remove(objs.map((o) => `${userId}/${sid}/${o.name}`));
-    await admin.auth.admin.deleteUser(userId);
+    const { error: delUserError } = await admin.auth.admin.deleteUser(userId);
+    if (delUserError) console.log("deleteUser failed:", delUserError.message);
     console.log(`cleaned up ${email} and ${objs?.length ?? 0} objects`);
   }
 }

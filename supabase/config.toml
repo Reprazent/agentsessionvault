@@ -187,6 +187,10 @@ minimum_password_length = 6
 # are: `letters_digits`, `lower_upper_letters_digits`, `lower_upper_letters_digits_symbols`
 password_requirements = ""
 
+# Session limits ([auth.sessions] inactivity_timeout / timebox) need the Pro
+# plan. Sign-ins idle for 7 days are ended by a pg_cron job instead; see
+# migrations/*_devices_revocation.sql.
+
 # Configure passkey sign-ins.
 # [auth.passkey]
 # enabled = false

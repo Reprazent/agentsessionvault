@@ -25,6 +25,7 @@ It asks for the passphrase on start when there's an account, or reads `AGENTSESS
     asv sessions
     asv pull <session-id>        # into ~/.pi/agent/sessions, or --out <path>
     asv devices
+    asv devices revoke <id>      # an id prefix is enough
 
 `login` starts a one-shot server on `127.0.0.1` (random port and path) inside the daemon, and the email link redirects there. Click it in a browser on the same machine and the terminal finishes by itself. Sign-in uses PKCE, so the code in that redirect is only useful to this daemon.
 
