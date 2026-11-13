@@ -2,7 +2,7 @@
 
 End-to-end encrypted sync for coding agent sessions, on Supabase. See [docs/spec.md](docs/spec.md).
 
-Status: milestone 2. The CLI and daemon can sign in, set up or unlock an account, and push and pull Pi sessions by hand. No file watching, Realtime or Pi extension yet.
+Status: milestone 3, in progress. The CLI and daemon sign in, set up or unlock an account, push Pi sessions as they change, pull them by hand and place them by project. A first Pi extension starts the daemon and shows its status. No Realtime pull yet.
 
 ## Using the CLI
 
@@ -58,6 +58,36 @@ Tools are pinned in `mise.toml` (node, bun, pnpm, supabase CLI).
     pnpm install
 
 No Docker needed.
+
+## Pi extension (development)
+
+`apps/pi-extension` connects Pi to the daemon. On session start it connects, or starts `agentsessionvault daemon --idle-exit` in the background, and keeps the connection open while Pi runs. The footer shows `vault: signed out`, `locked`, `synced`, `2 queued` or `push failed`. After each run it asks the daemon to push the session right away. `/vault` shows the details. Signing in, setup and unlocking still happen in the CLI.
+
+To install it from this checkout:
+
+1. Build the CLI binary, which the extension starts as the daemon:
+
+       pnpm --filter @agentsessionvault/cli build
+
+2. Tell the extension where it is. Either put it on your `PATH` as `agentsessionvault`:
+
+       ln -s "$PWD/apps/cli/dist/agentsessionvault" ~/.local/bin/agentsessionvault
+
+   or set `AGENTSESSIONVAULT_BIN` in the environment Pi runs in:
+
+       export AGENTSESSIONVAULT_BIN="$PWD/apps/cli/dist/agentsessionvault"
+
+3. Install the extension as a local Pi package. Pi loads it from the checkout without copying or installing its dependencies, so `pnpm install` must have run (see Setup). Edits apply on the next start or `/reload`:
+
+       pi install ./apps/pi-extension
+
+   To try it for one run instead: `pi -e ./apps/pi-extension`. To remove it: `pi remove ./apps/pi-extension`.
+
+4. Start Pi. The footer shows `vault: …`. If a daemon you started by hand with `asv daemon` is already running, the extension uses that one. Otherwise its log is in `~/.local/share/agentsessionvault/daemon.log`. Sign in and unlock with the CLI as above, and the footer follows within a few seconds.
+
+Rebuild the binary after changing CLI or daemon code. A daemon that's still running keeps the old code: quit all Pi windows and wait 30 seconds, or stop it with `pkill -f 'agentsessionvault daemon'`. `/vault` shows the running daemon's version and pid.
+
+To keep a development setup apart from your real one, start Pi with `AGENTSESSIONVAULT_HOME` set (state, socket and log). The daemon inherits it. `AGENTSESSIONVAULT_PI_SESSIONS` changes which Pi sessions the daemon watches, not where Pi writes them.
 
 ## Local testing
 

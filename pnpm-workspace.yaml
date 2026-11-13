@@ -1,3 +1,8 @@
 packages:
   - "packages/*"
   - "apps/*"
+
+# Transitive deps of Pi (a dev dependency, for types); their build scripts aren't needed.
+allowBuilds:
+  "@google/genai": false
+  protobufjs: false
