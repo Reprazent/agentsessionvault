@@ -271,6 +271,14 @@ Pull, triggered by Realtime inserts on `chunks` for my sessions, on startup, and
 
 Local file placement (milestone 2: by the original `cwd` from `meta_enc`, in Pi's `--<cwd>--/<timestamp>_<id>.jsonl` layout, or an explicit `--out`; the `projects` table isn't used yet): a pulled session is written under the local directory that matches its project. Matching goes by `project_tag` (git remote first, path relative to `$HOME` as the fallback). If no local checkout matches, the session goes to an `_unmapped/` folder and `/vault map` fixes it later. Paths inside entries are left alone in v1. Rewriting tool arguments is how you corrupt a transcript.
 
+
+Project identity, decided:
+
+- One project per git remote. The remote of the session's `cwd` (`git -C <cwd> remote get-url origin`), normalised so `git@github.com:a/b.git`, `ssh://git@github.com/a/b` and `https://github.com/a/b` are the same: host plus path, lowercased host, no `.git`, no user or scheme. A monorepo opened in a subdirectory is the same project as its root; finer splits can come later.
+- Without a remote (no git, no `origin`, or the `cwd` no longer exists, as with old sessions), the identity is the `cwd` relative to `$HOME`, prefixed so it can't collide with a remote (`path:repos/x`). Paths outside `$HOME` stay absolute.
+- `project_tag` is the HMAC of that identity with the `project-tag` subkey. `projects.meta_enc` holds the identity and a display name (the last path segment).
+- On pull, a local index maps `project_tag` to a checkout on this machine, built from the `cwd`s of local Pi sessions and their remotes. A match puts the session in that checkout's Pi directory. Otherwise it goes to `_unmapped/` until `map` attaches the project to a checkout and moves its sessions.
+
 Deletes: `/resume` delete in Pi removes the file. The daemon notices and sets `deleted_at`. Other devices move their copy to the trash, they don't delete it outright. Objects get purged after 30 days.
 
 ## Harness-neutral format (later, but shapes v1)
@@ -343,6 +351,6 @@ Deviations, on purpose:
 
 1. `packages/crypto` with test vectors, plus `supabase/` migrations with RLS tests. No harness code yet.
 2. CLI: login, setup, unlock, `daemon`, and push/pull of one Pi session file by hand through the socket.
-3. Daemon: file watching, Realtime pull, the socket. Then the Pi extension as a thin client: status line, nudges, `/vault` commands.
+3. Daemon: file watching, Realtime pull, the socket. Projects: populate `projects` and `sessions.project_id` on push, and place pulled sessions by project (see Local file placement), with `_unmapped/` and `map`. Pushing backfills `project_id` for sessions uploaded without one. Then the Pi extension as a thin client: status line, nudges, `/vault` commands.
 4. Two machines, one week of daily use. Fix whatever annoys me.
 5. Neutral format and the Claude Code adapter, read-only first (view a Pi session's history from Claude Code).
