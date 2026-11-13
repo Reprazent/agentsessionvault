@@ -354,3 +354,13 @@ Deviations, on purpose:
 3. Daemon: file watching, Realtime pull, the socket. Projects: populate `projects` and `sessions.project_id` on push, and place pulled sessions by project (see Local file placement), with `_unmapped/` and `map`. Pushing backfills `project_id` for sessions uploaded without one. Then the Pi extension as a thin client: status line, nudges, `/vault` commands.
 4. Two machines, one week of daily use. Fix whatever annoys me.
 5. Neutral format and the Claude Code adapter, read-only first (view a Pi session's history from Claude Code).
+
+## Future work
+
+Not planned in a milestone yet.
+
+- Claude Code and OpenCode: adapters (`packages/adapter-claude-code`, `packages/adapter-opencode`), the Claude Code hooks and the OpenCode plugin as thin daemon clients, and resuming a session in a different harness than the one that started it, through the neutral format. Milestone 5 starts with read-only Claude Code.
+- Project identity changes. Adding a remote to a repo that had none turns its `path:` identity into a remote one, which is a new project. Today the daemon caches each `cwd`'s project for its lifetime, so it only notices after a restart. After that, sessions move to the new project one by one as they're pushed again, and the rest stay on the old one. A `map` for the old project doesn't carry over, and other machines may put moved sessions in `_unmapped/` again. Removing or changing the remote splits a project the same way. The fix:
+  - Re-check each `cwd`'s remote every few minutes instead of caching it forever.
+  - When an identity changes from `path:…` to a remote, move all sessions of the old project, carry local maps over, and delete the old project row if it's empty.
+  - Merge projects by hand (`projects merge <from> <into>`) when a repo moves between remotes, since guessing that two remotes are the same repo isn't safe.
