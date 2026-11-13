@@ -150,8 +150,11 @@ export async function ping(path: string): Promise<boolean> {
 
 export interface StartOptions {
   socketPath: string;
-  /** The daemon command, e.g. ["agentsessionvault", "daemon", "--idle-exit"]. */
-  command: string[];
+  /**
+   * The daemon command, e.g. ["agentsessionvault", "daemon", "--idle-exit"].
+   * A function is only called when a daemon has to be started.
+   */
+  command: string[] | (() => Promise<string[]>);
   /** Where the started daemon's output goes (appended). */
   logFile: string;
   env?: Record<string, string | undefined>;
@@ -170,7 +173,7 @@ export async function connectOrStart(o: StartOptions): Promise<{ client: DaemonC
   } catch (e) {
     if (!(e instanceof DaemonNotRunningError)) throw e;
   }
-  const [cmd, ...args] = o.command;
+  const [cmd, ...args] = typeof o.command === "function" ? await o.command() : o.command;
   if (!cmd) throw new TypeError("command is empty");
   mkdirSync(dirname(o.logFile), { recursive: true, mode: 0o700 });
   const log = openSync(o.logFile, "a", 0o600);
@@ -201,3 +204,4 @@ export async function connectOrStart(o: StartOptions): Promise<{ client: DaemonC
     await new Promise((r) => setTimeout(r, 50));
   }
 }
+export * from "./binary.ts";

@@ -43,10 +43,6 @@ importers:
         version: 2.119.0
 
   apps/pi-extension:
-    dependencies:
-      '@agentsessionvault/daemon-client':
-        specifier: workspace:*
-        version: link:../../packages/daemon-client
     devDependencies:
       '@earendil-works/pi-coding-agent':
         specifier: 1.5.2

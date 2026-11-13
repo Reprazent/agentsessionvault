@@ -2,7 +2,7 @@
 // connection open (which keeps the daemon running), reconnects when it
 // drops, and turns the daemon's status into a short line for the footer.
 
-import type { DaemonClient, Hello } from "@agentsessionvault/daemon-client";
+import type { DaemonClient, Hello } from "../../../packages/daemon-client/src/index.ts";
 
 /** The part of the daemon's `status` the extension uses. */
 export interface DaemonStatus {

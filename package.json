@@ -1,7 +1,17 @@
 {
   "name": "agentsessionvault",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
+  "description": "End-to-end encrypted sync for coding agent sessions. Installable as a Pi package.",
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./apps/pi-extension/src/index.ts"
+    ]
+  },
   "scripts": {
     "test": "bun test",
     "typecheck": "pnpm -r --parallel typecheck",

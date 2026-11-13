@@ -5,14 +5,13 @@
   "type": "module",
   "description": "Pi extension for agentsessionvault: starts and talks to the daemon, shows sync status.",
   "pi": {
-    "extensions": ["./src/index.ts"]
+    "extensions": [
+      "./src/index.ts"
+    ]
   },
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc -p ."
-  },
-  "dependencies": {
-    "@agentsessionvault/daemon-client": "workspace:*"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"

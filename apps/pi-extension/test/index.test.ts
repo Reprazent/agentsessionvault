@@ -3,7 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type DaemonServer, serve } from "../../cli/src/protocol.ts";
-import extension, { daemonCommand } from "../src/index.ts";
+import agentsessionvault, { VERSION, daemonCommand, extension } from "../src/index.ts";
 
 type Fn = (...a: any[]) => Promise<unknown>;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -24,7 +24,7 @@ afterEach(async () => {
 });
 
 /** Just enough of Pi: event handlers, commands, a context with a footer. */
-function fakePi() {
+function fakePi(opts?: Parameters<typeof extension>[1]) {
   const on = new Map<string, Fn>();
   const commands = new Map<string, { handler: Fn }>();
   const statuses: (string | undefined)[] = [];
@@ -36,7 +36,8 @@ function fakePi() {
     sessionManager: { getSessionFile: () => file },
   };
   const pi = { on: (e: string, f: Fn) => on.set(e, f), registerCommand: (n: string, o: { handler: Fn }) => commands.set(n, o) };
-  extension(pi as never);
+  if (opts) extension(pi as never, opts);
+  else agentsessionvault(pi as never);
   return {
     emit: (e: string, ev: object = {}) => on.get(e)!(ev, ctx),
     command: (n: string) => commands.get(n)!.handler("", ctx),
@@ -46,9 +47,9 @@ function fakePi() {
   };
 }
 
-test("daemonCommand", () => {
-  expect(daemonCommand({})).toEqual(["agentsessionvault", "daemon", "--idle-exit"]);
-  expect(daemonCommand({ AGENTSESSIONVAULT_BIN: "/dev/asv" })[0]).toBe("/dev/asv");
+test("daemonCommand", async () => {
+  expect(await daemonCommand({ AGENTSESSIONVAULT_BIN: "/dev/asv" })).toEqual(["/dev/asv", "daemon", "--idle-exit"]);
+  expect(VERSION).toMatch(/^\d+\.\d+\.\d+/);
 });
 
 test("connects on session start, shows status, nudges after a run, disconnects on shutdown", async () => {
@@ -111,4 +112,32 @@ test("an unavailable daemon shows in the footer and in /vault", async () => {
   expect(msg).toContain("couldn't start the daemon");
   expect(level).toBe("warning");
   await pi.emit("session_shutdown", { reason: "quit" });
+});
+
+test("downloads the daemon when there's none, and says so", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "asv-pi-"));
+  const { assetName } = await import("../../../packages/daemon-client/src/index.ts");
+  const srv = Bun.serve({
+    port: 0,
+    fetch: (req) =>
+      new URL(req.url).pathname.endsWith("/SHA256SUMS")
+        ? new Response(`${"0".repeat(64)}  ${assetName()}\n`)
+        : new Response("not the binary"),
+  });
+  try {
+    process.env.AGENTSESSIONVAULT_HOME = dir;
+    process.env.AGENTSESSIONVAULT_SOCKET = join(dir, "d.sock");
+    process.env.AGENTSESSIONVAULT_RELEASES_URL = `http://127.0.0.1:${srv.port}`;
+    process.env.PATH = "";
+    delete process.env.AGENTSESSIONVAULT_BIN;
+    const pi = fakePi({ devBuild: join(dir, "no-dev-build") });
+    await pi.emit("session_start");
+    await until(() => pi.statuses.at(-1) === "vault: unavailable");
+    expect(pi.statuses).toContain("vault: downloading daemon");
+    await pi.command("vault");
+    expect(pi.notes.pop()![0]).toContain("checksum mismatch");
+    await pi.emit("session_shutdown", { reason: "quit" });
+  } finally {
+    srv.stop(true);
+  }
 });

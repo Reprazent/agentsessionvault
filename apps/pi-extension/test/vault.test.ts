@@ -1,5 +1,5 @@
 import { afterEach, describe as group, expect, test } from "bun:test";
-import { DaemonClient } from "@agentsessionvault/daemon-client";
+import { DaemonClient } from "../../../packages/daemon-client/src/index.ts";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

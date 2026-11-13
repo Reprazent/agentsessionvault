@@ -1,0 +1,26 @@
+# On a version tag (v<package.json version>): test, build the daemon for
+# each platform, and publish them with SHA256SUMS as a GitHub release. The
+# Pi extension of that version downloads its daemon from there.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest # signs the darwin binaries; cross-compiles linux
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: bun test
+      - run: bun scripts/build-release.ts --tag "$GITHUB_REF_NAME"
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/release/* --title "$GITHUB_REF_NAME" --generate-notes

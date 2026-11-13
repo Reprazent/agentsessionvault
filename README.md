@@ -59,35 +59,40 @@ Tools are pinned in `mise.toml` (node, bun, pnpm, supabase CLI).
 
 No Docker needed.
 
-## Pi extension (development)
+## Pi extension
 
 `apps/pi-extension` connects Pi to the daemon. On session start it connects, or starts `agentsessionvault daemon --idle-exit` in the background, and keeps the connection open while Pi runs. The footer shows `vault: signed out`, `locked`, `synced`, `2 queued` or `push failed`. After each run it asks the daemon to push the session right away. `/vault` shows the details. Signing in, setup and unlocking still happen in the CLI.
 
-To install it from this checkout:
+### Installing from GitHub
 
-1. Build the CLI binary, which the extension starts as the daemon:
+    pi install git:github.com/Reprazent/agentsessionvault@v0.1.0
+
+The repo root is the Pi package. Pi clones it and runs `npm install`, which installs nothing (there are no runtime dependencies). On first start, the extension downloads the daemon for its own version from the GitHub release `v<version>` (`agentsessionvault-<os>-<arch>`, macOS and Linux, arm64 and x64), checks it against the release's `SHA256SUMS`, and keeps it in `~/.local/share/agentsessionvault/bin/<version>/`. The footer shows `vault: downloading daemon` meanwhile. If the download fails, it falls back to `agentsessionvault` on the `PATH`.
+
+That binary is also the CLI: `~/.local/share/agentsessionvault/bin/<version>/agentsessionvault login you@example.com`, and so on.
+
+### Installing from this checkout (development)
+
+1. `pnpm install` (see Setup). Pi doesn't install dependencies for a local package.
+2. Build the CLI binary. The extension prefers `apps/cli/dist/agentsessionvault` in its checkout over a download:
 
        pnpm --filter @agentsessionvault/cli build
 
-2. Tell the extension where it is. Either put it on your `PATH` as `agentsessionvault`:
+3. Install the extension as a local Pi package. Pi loads it from the checkout without copying, so edits apply on the next start or `/reload`:
 
-       ln -s "$PWD/apps/cli/dist/agentsessionvault" ~/.local/bin/agentsessionvault
+       pi install .
 
-   or set `AGENTSESSIONVAULT_BIN` in the environment Pi runs in:
-
-       export AGENTSESSIONVAULT_BIN="$PWD/apps/cli/dist/agentsessionvault"
-
-3. Install the extension as a local Pi package. Pi loads it from the checkout without copying or installing its dependencies, so `pnpm install` must have run (see Setup). Edits apply on the next start or `/reload`:
-
-       pi install ./apps/pi-extension
-
-   To try it for one run instead: `pi -e ./apps/pi-extension`. To remove it: `pi remove ./apps/pi-extension`.
+   To try it for one run instead: `pi -e .`. To remove it: `pi remove .`.
 
 4. Start Pi. The footer shows `vault: …`. If a daemon you started by hand with `asv daemon` is already running, the extension uses that one. Otherwise its log is in `~/.local/share/agentsessionvault/daemon.log`. Sign in and unlock with the CLI as above, and the footer follows within a few seconds.
 
-Rebuild the binary after changing CLI or daemon code. A daemon that's still running keeps the old code: quit all Pi windows and wait 30 seconds, or stop it with `pkill -f 'agentsessionvault daemon'`. `/vault` shows the running daemon's version and pid.
+`AGENTSESSIONVAULT_BIN` overrides which binary it starts. Rebuild after changing CLI or daemon code. A daemon that's still running keeps the old code: quit all Pi windows and wait 30 seconds, or stop it with `pkill -f 'agentsessionvault daemon'`. `/vault` shows the running daemon's version and pid.
 
-To keep a development setup apart from your real one, start Pi with `AGENTSESSIONVAULT_HOME` set (state, socket and log). The daemon inherits it. `AGENTSESSIONVAULT_PI_SESSIONS` changes which Pi sessions the daemon watches, not where Pi writes them.
+To keep a development setup apart from your real one, start Pi with `AGENTSESSIONVAULT_HOME` set (state, socket, log and downloaded binaries). The daemon inherits it. `AGENTSESSIONVAULT_PI_SESSIONS` changes which Pi sessions the daemon watches, not where Pi writes them.
+
+### Releasing
+
+The version lives in the root `package.json` and is shared by the CLI, the daemon and the extension. To release, bump it, commit, and push a tag `v<version>`. `.github/workflows/release.yml` tests, runs `bun scripts/build-release.ts --tag v<version>` (all four binaries plus `SHA256SUMS` in `dist/release/`) and publishes them as a GitHub release. An extension installed at that tag downloads exactly those binaries. Run the script locally to check a build; `AGENTSESSIONVAULT_RELEASES_URL` points the extension at another server for testing.
 
 ## Local testing
 
