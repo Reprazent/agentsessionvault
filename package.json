@@ -8,6 +8,7 @@
     "test:db": "bun scripts/db-test-remote.ts",
     "test:db:local": "bun scripts/db-check-pglite.ts",
     "test:e2e": "bun scripts/e2e-hosted.ts",
+    "dev:login": "bun scripts/dev-login.ts",
     "gen:types": "supabase gen types --remote --schema public > packages/client/src/database.types.ts"
   },
   "devDependencies": {

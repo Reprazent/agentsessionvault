@@ -156,6 +156,7 @@ describe("daemon handlers", () => {
     await h.status!({});
     await h.login!({ email: "a@b.c" });
     await h.login!({ email: "a@b.c", callback: false });
+    await h.login!({ email: "a@b.c", sendEmail: false });
     await h.waitLogin!({});
     await h.verify!({ input: "123456" });
     await h.verify!({ input: "123456", email: "a@b.c" });
@@ -173,6 +174,7 @@ describe("daemon handlers", () => {
       ["status", []],
       ["login", ["a@b.c", { callback: true }]],
       ["login", ["a@b.c", { callback: false }]],
+      ["login", ["a@b.c", { callback: true, sendEmail: false }]],
       ["waitLogin", []],
       ["verify", ["123456", undefined]],
       ["verify", ["123456", "a@b.c"]],

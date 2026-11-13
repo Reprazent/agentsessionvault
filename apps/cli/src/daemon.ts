@@ -17,7 +17,7 @@ export function handlers(svc: VaultService, log: (m: string) => void): Record<st
   const h: Record<string, Handler> = {
     ping: async () => "pong",
     status: () => svc.status(),
-    login: (p) => svc.login(str(p, "email"), { callback: p.callback !== false }),
+    login: (p) => svc.login(str(p, "email"), { callback: p.callback !== false, ...(p.sendEmail === false ? { sendEmail: false } : {}) }),
     waitLogin: () => svc.waitLogin(),
     verify: (p) => svc.verify(str(p, "input"), optStr(p, "email")),
     logout: () => svc.logout(),

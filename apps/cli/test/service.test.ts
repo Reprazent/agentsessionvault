@@ -156,6 +156,15 @@ describe("login", () => {
     await svc.logout();
   });
 
+  test("sendEmail: false only starts the callback, for dev-login", async () => {
+    const { svc } = await device();
+    const r = await svc.login("me@example.com", { sendEmail: false });
+    expect(r.callbackUrl).toMatch(/^http:\/\/127\.0\.0\.1:/);
+    expect(server.sentTo).toEqual([]);
+    expect((await svc.login("me@example.com")).callbackUrl).toBeUndefined();
+    await svc.logout();
+  });
+
   test("a failed email closes the callback server", async () => {
     const { svc } = await device();
     await expect(svc.login("fail@example.com")).rejects.toThrow("not authorized");

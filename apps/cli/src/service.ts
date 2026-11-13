@@ -124,20 +124,24 @@ export class VaultService {
    * one-shot server on 127.0.0.1 that completes the login; see waitLogin.
    * Pasting the link or code into verify works either way.
    */
-  async login(email: string, opts: { callback?: boolean; timeoutMs?: number } = {}): Promise<{ email: string; callback: boolean }> {
+  async login(
+    email: string,
+    opts: { callback?: boolean; timeoutMs?: number; sendEmail?: boolean } = {},
+  ): Promise<{ email: string; callback: boolean; callbackUrl?: string }> {
     const e = email.trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new TypeError("that doesn't look like an email address");
     this.callback?.close();
     this.callback = opts.callback === false ? undefined : await startCallbackServer({ timeoutMs: opts.timeoutMs });
     try {
-      await this.client.sendLoginEmail(e, this.callback?.url);
+      // sendEmail: false is for scripts/dev-login.ts, which makes the link with the admin API.
+      if (opts.sendEmail !== false) await this.client.sendLoginEmail(e, this.callback?.url);
     } catch (err) {
       this.callback?.close();
       this.callback = undefined;
       throw err;
     }
     this.pendingEmail = e;
-    return { email: e, callback: !!this.callback };
+    return { email: e, callback: !!this.callback, ...(opts.sendEmail === false && this.callback ? { callbackUrl: this.callback.url } : {}) };
   }
 
   /** Waits for the email link to hit the callback server, then completes the login. */

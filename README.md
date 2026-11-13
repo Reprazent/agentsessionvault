@@ -29,6 +29,8 @@ It asks for the passphrase on start when there's an account, or reads `AGENTSESS
 
 On another machine (a VM over SSH, say), copy the link from the email and paste it at the prompt instead. If you already clicked it, paste the address of the page it tried to open. `login --paste` skips the local server entirely. The free tier doesn't allow custom email templates with the default sender, so the email has no code. The default sender also only delivers to members of the Supabase organisation.
 
+While testing, the built-in sender's limit of a few emails per hour runs out quickly. With the daemon running, `pnpm dev:login you@example.com` signs it in without sending an email. It makes the link with the admin API (using the secret key from the logged-in Supabase CLI), creates the user if needed and completes the redirect to the daemon's callback. It respects `AGENTSESSIONVAULT_HOME` and `AGENTSESSIONVAULT_SOCKET`. Dev only, and it doesn't exercise the PKCE email path.
+
 To try a second device on one machine, give it its own state directory and socket:
 
     AGENTSESSIONVAULT_HOME=/tmp/asv-b AGENTSESSIONVAULT_PI_SESSIONS=/tmp/asv-b/pi asv daemon
