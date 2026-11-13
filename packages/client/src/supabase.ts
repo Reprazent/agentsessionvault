@@ -110,6 +110,22 @@ export class VaultClient {
     if (error) throw error;
   }
 
+  /**
+   * Replaces the passphrase copy of the account key. Only applies if the salt
+   * is still `previousSalt`, so a concurrent change elsewhere isn't silently
+   * overwritten. Needs an active device.
+   */
+  async updatePassphrase(userId: string, row: AccountKeys, previousSalt: string): Promise<void> {
+    const { data, error } = await this.supabase
+      .from("accounts")
+      .update({ kdf: asJson(row.kdf), account_key_by_pass: asJson(row.account_key_by_pass) })
+      .eq("user_id", userId)
+      .eq("kdf->>salt", previousSalt)
+      .select("user_id");
+    if (error) throw error;
+    if (!data?.length) throw new ConflictError("the passphrase changed elsewhere, or this device isn't active; unlock again and retry");
+  }
+
   /** This sign-in's device, if it's registered and active. A revoked one is invisible. */
   async currentDevice(): Promise<DeviceRow | null> {
     const session = await this.requireSession();

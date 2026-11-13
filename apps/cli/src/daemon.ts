@@ -43,6 +43,19 @@ export function handlers(svc: VaultService, log: (m: string) => void): Record<st
       log(`pull ${r.sessionId}: ${r.chunks} chunk(s) -> ${r.path}`);
       return r;
     },
+    passphrase: async (p) => {
+      const current = optStr(p, "current");
+      const recoveryKey = optStr(p, "recoveryKey");
+      const passphrase = optStr(p, "passphrase");
+      const r = await svc.changePassphrase({
+        ...(current ? { current } : {}),
+        ...(recoveryKey ? { recoveryKey } : {}),
+        ...(passphrase ? { passphrase } : {}),
+        generate: p.generate === true,
+      });
+      log("passphrase changed");
+      return r;
+    },
     sessions: () => svc.sessions(),
     devices: () => svc.devices(),
   };

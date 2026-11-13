@@ -17,6 +17,8 @@ Usage:
   agentsessionvault login [email] [--paste] sign in via the emailed link (--paste: no local server)
   agentsessionvault setup [--generate]      first device: create the account
   agentsessionvault unlock [--recovery]     unlock this device
+  agentsessionvault passphrase [--recovery] [--generate]
+                                            set a new passphrase
   agentsessionvault status
   agentsessionvault push <session.jsonl>    push a Pi session file
   agentsessionvault pull <session-id> [--out <path>]
@@ -175,6 +177,24 @@ export async function main(argv: string[]): Promise<number> {
           ? { recoveryKey: await prompt("Recovery key: ", { hidden: true }) }
           : { passphrase: await prompt("Passphrase: ", { hidden: true }) };
         printStatus(await c.call<Status>("unlock", params));
+        return 0;
+      });
+
+    case "passphrase":
+      return withDaemon(async (c) => {
+        const st = await c.call<Status>("status");
+        if (!st.unlocked) throw new Error("unlock first: `agentsessionvault unlock` (or `unlock --recovery` if you forgot it)");
+        const proof = values.recovery
+          ? { recoveryKey: await prompt("Recovery key: ", { hidden: true }) }
+          : { current: await prompt("Current passphrase: ", { hidden: true }) };
+        const next = values.generate ? { generate: true } : { passphrase: await newPassphrase() };
+        err("Changing the passphrase (this takes a second)...");
+        const r = await c.call<{ passphrase?: string }>("passphrase", { ...proof, ...next });
+        if (r.passphrase) {
+          out("\nYour new passphrase (store it in your password manager):\n");
+          out(`    ${r.passphrase}\n`);
+        }
+        out("Passphrase changed. Other devices need it the next time they unlock. The recovery key is unchanged.");
         return 0;
       });
 

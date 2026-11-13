@@ -19,6 +19,7 @@ It asks for the passphrase on start when there's an account, or reads `AGENTSESS
     asv login you@example.com    # click the link in the email (or paste it, see below)
     asv setup                    # first device: passphrase, prints the recovery key
     asv unlock                   # other devices (--recovery for the recovery key)
+    asv passphrase               # new passphrase; --recovery if you forgot the old one
     asv status
     asv push ~/.pi/agent/sessions/<dir>/<file>.jsonl
     asv sessions

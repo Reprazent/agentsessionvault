@@ -150,6 +150,8 @@ Removing a device: mark it revoked. Each device row records the Supabase Auth se
 
 If the device was stolen rather than retired, `/vault rotate` creates a new account key and re-locks every session key with it. This is weaker than it sounds: the session keys themselves don't change, so a thief who already unlocked them can read old chunks and also any future chunks of those sessions, if they ever get at the ciphertext again. Fixing that means starting a new session key for each live session on rotation, which the `key_id` in the chunk header leaves room for. Both `/vault rotate` and that fix come after the PoC.
 
+Changing the passphrase: `agentsessionvault passphrase` (later `/vault passphrase`) asks for the current passphrase, or the recovery key with `--recovery`, which makes it the reset for a forgotten passphrase. The daemon only keeps subkeys in memory, so it unlocks the account key again to re-lock it. It then replaces `kdf` and `account_key_by_pass` with a fresh salt, but only if the salt is unchanged since it read the row, so two devices changing it at once can't clobber each other. Other devices keep working until they next unlock. For now it only re-locks the same account key, which is enough when you just want a different passphrase. It does nothing if the old passphrase leaked, because whoever had it (and a copy of the old row, or the account key) still has the account key. In the future the command needs to rotate: create a new account key, re-lock every session key and re-encrypt all metadata with it, and offer a new recovery key. That's the same work as `/vault rotate`, and it should share the code.
+
 Later, maybe: approving a new device from an existing one (QR code or short code) instead of typing the passphrase. That needs a key pair per device and an approval flow, and v1 doesn't need it.
 
 ## Data model
@@ -287,6 +289,7 @@ Not part of v1's critical path. It's still written down now so the native-first 
 /vault status         # per session: synced, pending, conflicted
 /vault pull
 /vault devices        # list, revoke
+/vault passphrase     # new passphrase (--recovery to reset a forgotten one)
 /vault rotate         # new account key after losing a device
 /vault map            # attach unmapped sessions to a local project
 ```

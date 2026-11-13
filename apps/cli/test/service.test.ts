@@ -59,6 +59,10 @@ class FakeBackend implements Backend {
     if (this.server.account) throw new ConflictError("exists");
     this.server.account = row;
   }
+  async updatePassphrase(_: string, row: AccountKeys, previousSalt: string) {
+    if (!this.active() || this.server.account?.kdf.salt !== previousSalt) throw new ConflictError("changed elsewhere");
+    this.server.account = { ...this.server.account, kdf: row.kdf, account_key_by_pass: row.account_key_by_pass };
+  }
   private sid() {
     return JSON.parse(Buffer.from(this.current!.access_token.split(".")[1]!, "base64url").toString()).session_id as string;
   }
@@ -261,6 +265,61 @@ describe("unlock", () => {
     await a.svc.setup({ passphrase: PASS });
     await a.backend.verifyLogin("me@example.com", "123456");
     expect((await a.svc.status()).unlocked).toBe(false);
+  });
+});
+
+describe("passphrase", () => {
+  const NEW = "a brand new long passphrase";
+
+  test("with the current passphrase: the new one unlocks elsewhere, the old one doesn't", async () => {
+    const a = await signedIn();
+    const { recoveryKey } = await a.svc.setup({ passphrase: PASS });
+    const before = server.account!;
+    expect(await a.svc.changePassphrase({ current: PASS, passphrase: NEW })).toEqual({});
+    expect(server.account!.kdf.salt).not.toBe(before.kdf.salt);
+    expect(server.account!.account_key_by_recovery).toEqual(before.account_key_by_recovery);
+    expect((await a.svc.status()).unlocked).toBe(true);
+
+    const b = await signedIn();
+    await expect(b.svc.unlock({ passphrase: PASS })).rejects.toThrow("decrypt");
+    expect((await b.svc.unlock({ passphrase: NEW })).unlocked).toBe(true);
+    expect((await (await signedIn()).svc.unlock({ recoveryKey })).unlocked).toBe(true);
+  });
+
+  test("reset with the recovery key, generating the new one", async () => {
+    const a = await signedIn();
+    const { recoveryKey } = await a.svc.setup({ passphrase: PASS });
+    const { passphrase } = await a.svc.changePassphrase({ recoveryKey, generate: true });
+    expect(passphrase!.length).toBeGreaterThanOrEqual(16);
+    expect((await (await signedIn()).svc.unlock({ passphrase: passphrase! })).unlocked).toBe(true);
+  });
+
+  test("refuses without proof, with the wrong one, a weak or missing new one, or while locked", async () => {
+    const a = await signedIn();
+    await expect(a.svc.changePassphrase({ current: PASS, passphrase: NEW })).rejects.toBeInstanceOf(NoAccountError);
+    await a.svc.setup({ passphrase: PASS });
+    const before = server.account;
+    await expect(a.svc.changePassphrase({ passphrase: NEW })).rejects.toThrow("current passphrase or the recovery key");
+    await expect(a.svc.changePassphrase({ current: "wrong but long enough", passphrase: NEW })).rejects.toThrow("decrypt");
+    await expect(a.svc.changePassphrase({ current: PASS })).rejects.toThrow("new passphrase is required");
+    await expect(a.svc.changePassphrase({ current: PASS, passphrase: "short" })).rejects.toThrow("16");
+    expect(server.account).toBe(before);
+    const b = await signedIn();
+    await expect(b.svc.changePassphrase({ current: PASS, passphrase: NEW })).rejects.toBeInstanceOf(LockedError);
+  });
+
+  test("a concurrent change elsewhere is a conflict", async () => {
+    const a = await signedIn();
+    await a.svc.setup({ passphrase: PASS });
+    const b = await signedIn();
+    await b.svc.unlock({ passphrase: PASS });
+    // a read the row before b changed it.
+    const before = server.account!;
+    a.backend.getAccount = async () => before;
+    await b.svc.changePassphrase({ current: PASS, passphrase: NEW });
+    await expect(a.svc.changePassphrase({ current: PASS, passphrase: "yet another long passphrase" })).rejects.toBeInstanceOf(ConflictError);
+    // b's change stands.
+    expect((await (await signedIn()).svc.unlock({ passphrase: NEW })).unlocked).toBe(true);
   });
 });
 

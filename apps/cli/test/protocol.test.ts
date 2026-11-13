@@ -168,6 +168,8 @@ describe("daemon handlers", () => {
     await h.push!({ path: "/x.jsonl" });
     await h.pull!({ sessionId: "s" });
     await h.pull!({ sessionId: "s", path: "/out" });
+    await h.passphrase!({ current: "c", passphrase: "n" });
+    await h.passphrase!({ recoveryKey: "r", generate: true });
     await h.sessions!({});
     await h.devices!({});
     expect(calls).toEqual([
@@ -186,6 +188,8 @@ describe("daemon handlers", () => {
       ["push", ["/x.jsonl"]],
       ["pull", ["s", undefined]],
       ["pull", ["s", "/out"]],
+      ["changePassphrase", [{ current: "c", passphrase: "n", generate: false }]],
+      ["changePassphrase", [{ recoveryKey: "r", generate: true }]],
       ["sessions", []],
       ["devices", []],
     ]);

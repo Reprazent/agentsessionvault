@@ -5,6 +5,7 @@
 import {
   type AccountSubkeys,
   accountSubkeys,
+  changePassphrase,
   createAccount,
   formatRecoveryKey,
   generatePassphrase,
@@ -69,6 +70,7 @@ export interface Backend {
   signOut(): Promise<void>;
   getAccount(userId: string): Promise<AccountKeys | null>;
   createAccount(userId: string, row: AccountKeys): Promise<void>;
+  updatePassphrase(userId: string, row: AccountKeys, previousSalt: string): Promise<void>;
   currentDevice(): Promise<DeviceRow | null>;
   registerDevice(id: string, nameEnc: DeviceRow["name_enc"]): Promise<void>;
   listDevices(): Promise<DeviceRow[]>;
@@ -199,6 +201,39 @@ export class VaultService {
           })();
     await this.activate(session.user.id, accountKey, row.account_key_version);
     return this.status();
+  }
+
+  /**
+   * Sets a new passphrase. Needs an unlocked device and the current passphrase
+   * or the recovery key, because only the account key's subkeys are kept in
+   * memory. With the recovery key, this is the reset for a forgotten passphrase.
+   * Other devices keep working until they unlock again.
+   */
+  async changePassphrase(opts: {
+    current?: string;
+    recoveryKey?: string;
+    passphrase?: string;
+    generate?: boolean;
+  }): Promise<{ passphrase?: string }> {
+    const u = await this.requireUnlocked();
+    const row = await this.client.getAccount(u.userId);
+    if (!row) throw new NoAccountError();
+    const next = opts.generate ? generatePassphrase() : opts.passphrase;
+    if (!next) throw new TypeError("a new passphrase is required");
+    const accountKey = opts.recoveryKey
+      ? await unlockWithRecoveryKey(u.userId, row, opts.recoveryKey)
+      : opts.current
+        ? await unlockWithPassphrase(u.userId, row, opts.current)
+        : (() => {
+            throw new TypeError("the current passphrase or the recovery key is required");
+          })();
+    try {
+      const updated = await changePassphrase(u.userId, row, accountKey, next);
+      await this.client.updatePassphrase(u.userId, updated, row.kdf.salt);
+    } finally {
+      accountKey.fill(0);
+    }
+    return opts.generate ? { passphrase: next } : {};
   }
 
   private async activate(userId: string, accountKey: Uint8Array, version: number): Promise<void> {

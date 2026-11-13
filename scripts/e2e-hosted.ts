@@ -131,6 +131,20 @@ try {
   await c.svc.unlock({ recoveryKey: recoveryKey.toLowerCase() });
   check((await c.svc.pull(sid)).chunks === 3, "c unlocks with the recovery key and pulls");
 
+  // a changes the passphrase; the old one stops working, the recovery key doesn't.
+  const newPass = "an entirely new e2e passphrase";
+  await a.svc.changePassphrase({ current: passphrase, passphrase: newPass });
+  const d = await device("d");
+  await d.svc.verify((await magicLink()).email_otp, email);
+  threw = false;
+  try {
+    await d.svc.unlock({ passphrase });
+  } catch {
+    threw = true;
+  }
+  check(threw, "after a passphrase change, the old one no longer unlocks");
+  check((await d.svc.unlock({ passphrase: newPass })).unlocked, "the new one does");
+
   // Revoke b from a; b loses access with its current token.
   const bId = (await b.svc.status()).deviceId!;
   const { error: revokeError } = await (a.svc.client as VaultClient).supabase.from("devices").update({ status: "revoked" }).eq("id", bId);
@@ -145,7 +159,7 @@ try {
   check(threw, "b can't push after revocation");
   threw = false;
   try {
-    await b.svc.unlock({ passphrase });
+    await b.svc.unlock({ passphrase: newPass });
   } catch (e) {
     threw = (e as Error).name === "RevokedDeviceError";
   }
