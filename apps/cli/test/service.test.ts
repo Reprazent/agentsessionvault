@@ -374,6 +374,8 @@ describe("sync through the service", () => {
     await expect(svc.pull("x")).rejects.toBeInstanceOf(LockedError);
     await expect(svc.sessions()).rejects.toBeInstanceOf(LockedError);
     await expect(svc.devices()).rejects.toBeInstanceOf(LockedError);
+    await expect(svc.projects()).rejects.toBeInstanceOf(LockedError);
+    await expect(svc.mapProject("p", "/")).rejects.toBeInstanceOf(LockedError);
   });
 
   test("push, list and pull with relative and explicit paths", async () => {
@@ -394,7 +396,11 @@ describe("sync through the service", () => {
     const b = await signedIn();
     await b.svc.unlock({ passphrase: PASS });
     const r = await b.svc.pull(sid);
-    expect(r.path).toBe(join(b.root, "pi", "--p--", `2026-11-13T10-38-17-712Z_${sid}.jsonl`));
+    // /p doesn't exist here, so it waits in _unmapped/ until it's mapped.
+    expect(r.path).toBe(join(b.root, "pi", "_unmapped", "p", `2026-11-13T10-38-17-712Z_${sid}.jsonl`));
+    expect((await b.svc.projects()).map((p) => [p.identity, p.sessions, p.local])).toEqual([["path:/p", 1, undefined]]);
+    const moved = (await b.svc.mapProject("p", b.root)).moved;
+    expect(moved).toEqual([join(b.root, "pi", `--${b.root.slice(1).replaceAll("/", "-")}--`, `2026-11-13T10-38-17-712Z_${sid}.jsonl`)]);
     const out = join(b.root, "out.jsonl");
     expect((await b.svc.pull(sid, out)).path).toBe(out);
     expect(await readFile(out, "utf8")).toBe(await readFile(file, "utf8"));

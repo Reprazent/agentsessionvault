@@ -1,9 +1,10 @@
 import type { ChunkKind, Envelope } from "@agentsessionvault/crypto";
-import { ConflictError, type NewSession, NotFoundError, type Remote, type RemoteChunk, type RemoteSession } from "./remote.ts";
+import { ConflictError, type NewSession, NotFoundError, type Remote, type RemoteChunk, type RemoteProject, type RemoteSession } from "./remote.ts";
 
 /** Shared server state for MemoryRemote. Mirrors the rules of commit_chunk. */
 export class MemoryServer {
   sessions = new Map<string, RemoteSession>();
+  projects = new Map<string, RemoteProject>();
   chunks = new Map<string, RemoteChunk[]>();
   objects = new Map<string, Uint8Array>();
   private n = 0;
@@ -38,7 +39,7 @@ export class MemoryRemote implements Remote {
 
   async createSession(row: NewSession) {
     if (this.server.sessions.has(row.id)) throw new ConflictError(`session ${row.id} exists`);
-    this.server.sessions.set(row.id, { ...row, head_seq: 0, updated_at: new Date().toISOString(), deleted_at: null });
+    this.server.sessions.set(row.id, { ...row, project_id: null, head_seq: 0, updated_at: new Date().toISOString(), deleted_at: null });
     this.server.chunks.set(row.id, []);
   }
 
@@ -46,6 +47,22 @@ export class MemoryRemote implements Remote {
     const s = this.server.sessions.get(id);
     if (!s) throw new NotFoundError(id);
     s.meta_enc = meta;
+  }
+
+  async setSessionProject(id: string, projectId: string) {
+    const s = this.server.sessions.get(id);
+    if (!s) throw new NotFoundError(id);
+    if (!this.server.projects.has(projectId)) throw new NotFoundError(projectId);
+    s.project_id = projectId;
+  }
+
+  async listProjects() {
+    return [...this.server.projects.values()].map((p) => structuredClone(p));
+  }
+
+  async createProject(row: RemoteProject) {
+    for (const p of this.server.projects.values()) if (p.project_tag === row.project_tag) throw new ConflictError("project exists");
+    this.server.projects.set(row.id, structuredClone(row));
   }
 
   async listChunks(sessionId: string, afterSeq: number) {

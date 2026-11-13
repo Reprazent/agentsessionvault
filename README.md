@@ -24,6 +24,8 @@ It asks for the passphrase on start when there's an account, or reads `AGENTSESS
     asv push ~/.pi/agent/sessions/<dir>/<file>.jsonl
     asv sessions
     asv pull <session-id>        # into ~/.pi/agent/sessions, or --out <path>
+    asv projects                 # one per git remote, else per path under $HOME
+    asv map <project> [dir]      # put a project's sessions in dir (default: here)
     asv devices
     asv devices revoke <id>      # an id prefix is enough
 
@@ -43,7 +45,7 @@ Other settings: `AGENTSESSIONVAULT_SOCKET`, `AGENTSESSIONVAULT_SUPABASE_URL`, `A
 Known limits for now:
 
 - `pull` appends to the session file. Don't pull into a session that's open in Pi.
-- Pulled sessions are placed by their original working directory. Matching projects by git remote comes later.
+- Pulled sessions go to this machine's checkout of the same project: a `map`, the original directory if it's the same project here, or a directory with Pi sessions for the same remote. Otherwise they wait in `~/.pi/agent/sessions/_unmapped/<project>/`, where Pi doesn't list them, until you `asv map` the project.
 - A session you push from a second device before pulling it there is merged first, so nothing is duplicated. A session that already exists remotely can still re-send some entries in rare cases. Merging by id makes this harmless.
 
 ## Setup

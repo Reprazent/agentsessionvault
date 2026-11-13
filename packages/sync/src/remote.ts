@@ -6,6 +6,7 @@ export interface RemoteSession {
   harness: string;
   session_key: Envelope;
   account_key_version: number;
+  project_id: string | null;
   meta_enc: Envelope;
   head_seq: number;
   updated_at: string;
@@ -20,6 +21,13 @@ export interface RemoteChunk {
   kind: ChunkKind;
   size: number;
   device_id: string;
+}
+
+/** A `projects` row. The tag is base64 here (bytea on the server). */
+export interface RemoteProject {
+  id: string;
+  project_tag: string;
+  meta_enc: Envelope;
 }
 
 export type NewSession = Pick<RemoteSession, "id" | "harness" | "session_key" | "account_key_version" | "meta_enc">;
@@ -44,6 +52,10 @@ export interface Remote {
   /** Throws ConflictError if the id exists. */
   createSession(row: NewSession): Promise<void>;
   updateSessionMeta(id: string, meta: Envelope): Promise<void>;
+  setSessionProject(id: string, projectId: string): Promise<void>;
+  listProjects(): Promise<RemoteProject[]>;
+  /** Throws ConflictError if this user already has a project with the tag. */
+  createProject(row: RemoteProject): Promise<void>;
   listChunks(sessionId: string, afterSeq: number): Promise<RemoteChunk[]>;
   /** Uploads an encrypted chunk object and returns its object name. Not visible until committed. */
   uploadChunk(sessionId: string, seq: number, obj: Uint8Array): Promise<string>;

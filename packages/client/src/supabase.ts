@@ -3,7 +3,7 @@
 // tests, so it's excluded from unit coverage in bunfig.toml.
 
 import { type AccountKeys, type ChunkKind, type Envelope } from "@agentsessionvault/crypto";
-import { ConflictError, type NewSession, NotFoundError, type Remote, type RemoteChunk, type RemoteSession } from "@agentsessionvault/sync";
+import { ConflictError, type NewSession, NotFoundError, type Remote, type RemoteChunk, type RemoteProject, type RemoteSession } from "@agentsessionvault/sync";
 import { FunctionsHttpError, type Session, createClient } from "@supabase/supabase-js";
 import type { Database, Json } from "./database.types.ts";
 import { FileAuthStorage, NotSignedInError, RevokedDeviceError, jwtSessionId, parseLoginProof } from "./auth.ts";
@@ -182,7 +182,16 @@ export class VaultClient {
   }
 }
 
-const SESSION_COLS = "id, harness, session_key, account_key_version, meta_enc, head_seq, updated_at, deleted_at";
+// PostgREST reads and writes bytea as "\\x<hex>".
+export function base64ToHex(b64: string): string {
+  return `\\x${Buffer.from(b64, "base64").toString("hex")}`;
+}
+
+export function hexToBase64(hex: string): string {
+  return Buffer.from(hex.replace(/^\\x/, ""), "hex").toString("base64");
+}
+
+const SESSION_COLS = "id, harness, session_key, account_key_version, meta_enc, project_id, head_seq, updated_at, deleted_at";
 
 export class SupabaseRemote implements Remote {
   constructor(
@@ -221,6 +230,28 @@ export class SupabaseRemote implements Remote {
 
   async updateSessionMeta(id: string, meta: Envelope): Promise<void> {
     const { error } = await this.db.from("sessions").update({ meta_enc: asJson(meta) }).eq("id", id);
+    if (error) throw error;
+  }
+
+  async setSessionProject(id: string, projectId: string): Promise<void> {
+    const { error } = await this.db.from("sessions").update({ project_id: projectId }).eq("id", id);
+    if (error) throw error;
+  }
+
+  async listProjects(): Promise<RemoteProject[]> {
+    const { data, error } = await this.db.from("projects").select("id, project_tag, meta_enc");
+    if (error) throw error;
+    return data.map((p) => ({ id: p.id, project_tag: hexToBase64(p.project_tag as string), meta_enc: p.meta_enc as unknown as Envelope }));
+  }
+
+  async createProject(row: RemoteProject): Promise<void> {
+    const { error } = await this.db.from("projects").insert({
+      id: row.id,
+      user_id: this.userId,
+      project_tag: base64ToHex(row.project_tag),
+      meta_enc: asJson(row.meta_enc),
+    });
+    if (error?.code === "23505") throw new ConflictError("project exists");
     if (error) throw error;
   }
 

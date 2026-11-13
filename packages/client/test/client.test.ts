@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FileAuthStorage, jwtSessionId, parseLoginProof } from "../src/index.ts";
+import { FileAuthStorage, base64ToHex, hexToBase64, jwtSessionId, parseLoginProof } from "../src/index.ts";
 
 const jwt = (claims: object) =>
   `${Buffer.from('{"alg":"none"}').toString("base64url")}.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.sig`;
@@ -74,5 +74,15 @@ describe("parseLoginProof", () => {
   test("anything else", () => {
     expect(() => parseLoginProof("hello")).toThrow("expected the code");
     expect(() => parseLoginProof("https://example.com/")).toThrow("no token, code or session");
+  });
+});
+
+describe("bytea", () => {
+  test("base64 <-> PostgREST hex", () => {
+    const b64 = Buffer.from(Array.from({ length: 32 }, (_, i) => i * 7)).toString("base64");
+    const hex = base64ToHex(b64);
+    expect(hex).toStartWith("\\x00070e15");
+    expect(hex).toHaveLength(66);
+    expect(hexToBase64(hex)).toBe(b64);
   });
 });

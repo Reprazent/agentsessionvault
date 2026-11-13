@@ -144,6 +144,7 @@ describe("daemon handlers", () => {
           if (name === "pull") return { sessionId: "s", chunks: 0, path: "/p" };
           if (name === "unlock") return { deviceId: "d" };
           if (name === "revokeDevice") return { id: "abcd" };
+          if (name === "mapProject") return { project: { id: "p" }, moved: [] };
           return {};
         },
     },
@@ -172,6 +173,8 @@ describe("daemon handlers", () => {
     await h.passphrase!({ current: "c", passphrase: "n" });
     await h.passphrase!({ recoveryKey: "r", generate: true });
     await h.sessions!({});
+    await h.projects!({});
+    await h.map!({ project: "app", dir: "/x" });
     await h.devices!({});
     await h.revokeDevice!({ id: "abcd" });
     expect(calls).toEqual([
@@ -193,6 +196,8 @@ describe("daemon handlers", () => {
       ["changePassphrase", [{ current: "c", passphrase: "n", generate: false }]],
       ["changePassphrase", [{ recoveryKey: "r", generate: true }]],
       ["sessions", []],
+      ["projects", []],
+      ["mapProject", ["app", "/x"]],
       ["devices", []],
       ["revokeDevice", ["abcd"]],
     ]);

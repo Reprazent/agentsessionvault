@@ -6,14 +6,27 @@ import {
   importSessionKey,
   newSessionKey,
   openMeta,
+  projectTag,
   sealMeta,
   toBase64,
   unwrapSessionKey,
 } from "@agentsessionvault/crypto";
-import { completeLinesFrom, lineKey, lines, mergeBytes, parseHeader, sessionRelPath, sessionTitle } from "@agentsessionvault/adapter-pi";
-import { appendFile, mkdir, readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { ConflictError, NotFoundError, type Remote, type RemoteSession } from "./remote.ts";
+import {
+  completeLinesFrom,
+  cwdDirName,
+  lineKey,
+  lines,
+  mergeBytes,
+  parseHeader,
+  sessionFileName,
+  sessionRelPath,
+  sessionTitle,
+} from "@agentsessionvault/adapter-pi";
+import { appendFile, mkdir, open, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { basename, dirname, join, resolve, sep } from "node:path";
+import { type ProjectMeta, ProjectResolver } from "./project.ts";
+import { ConflictError, NotFoundError, type Remote, type RemoteProject, type RemoteSession } from "./remote.ts";
 import { type LocalSessionState, StateStore } from "./state.ts";
 
 /** Encrypted in `sessions.meta_enc`. */
@@ -35,7 +48,21 @@ export interface SyncOptions {
   maxChunkBytes?: number;
   /** Commit attempts per chunk before giving up on conflicts. */
   maxAttempts?: number;
+  /** Resolves a cwd to its project. Defaults to git and the real home directory. */
+  projects?: ProjectResolver;
 }
+
+export interface ProjectSummary {
+  id: string;
+  name?: string | undefined;
+  identity?: string | undefined;
+  sessions: number;
+  /** Where its sessions go on this machine; undefined means _unmapped/. */
+  local?: { dir: string; how: "map" | "found" } | undefined;
+}
+
+/** Where pulled sessions of unknown projects wait for `map`. */
+export const UNMAPPED = "_unmapped";
 
 export interface PushResult {
   sessionId: string;
@@ -56,6 +83,7 @@ export interface SessionSummary {
   title?: string | undefined;
   cwd?: string;
   created_at?: string;
+  project?: string | undefined;
   head_seq: number;
   updated_at: string;
   deleted: boolean;
@@ -103,6 +131,9 @@ export class SyncEngine {
   private readonly sessionsDir: string;
   private readonly maxChunkBytes: number;
   private readonly maxAttempts: number;
+  private readonly stateDir: string;
+  private readonly projects: ProjectResolver;
+  private readonly projectIds = new Map<string, string>();
   private readonly sessionKeys = new Map<string, CryptoKey>();
   /** One push or pull at a time per session. */
   private readonly locks = new Map<string, Promise<unknown>>();
@@ -111,6 +142,8 @@ export class SyncEngine {
     this.remote = o.remote;
     this.keys = o.keys;
     this.state = new StateStore(o.stateDir);
+    this.stateDir = o.stateDir;
+    this.projects = o.projects ?? new ProjectResolver(homedir());
     this.sessionsDir = o.sessionsDir;
     this.maxChunkBytes = o.maxChunkBytes ?? 1024 * 1024;
     this.maxAttempts = o.maxAttempts ?? 5;
@@ -182,6 +215,11 @@ export class SyncEngine {
     } else if (session.deleted_at === null) {
       const old = await openMeta<SessionMeta>(this.keys, id, "sessions.meta_enc", session.meta_enc);
       if (old.title !== meta.title) await this.remote.updateSessionMeta(id, await sealMeta(this.keys, id, "sessions.meta_enc", meta));
+    }
+    // Also backfills sessions pushed before projects existed.
+    if (session.deleted_at === null) {
+      const projectId = await this.projectFor(header.cwd);
+      if (session.project_id !== projectId) await this.remote.setSessionProject(id, projectId);
     }
 
     // Merge what others pushed, so we don't send it back.
@@ -266,7 +304,7 @@ export class SyncEngine {
         let path = opts.path;
         if (!path) {
           const meta = await openMeta<SessionMeta>(this.keys, sessionId, "sessions.meta_enc", session.meta_enc);
-          path = join(this.sessionsDir, sessionRelPath({ id: sessionId, cwd: meta.cwd, timestamp: meta.created_at }));
+          path = await this.placement(session, meta, await this.remote.listProjects());
         }
         // A different file starts from scratch: everything gets merged into it.
         if (!st || st.path !== path) st = { sessionId, path, pushedOffset: 0, prefixHash: await sha256(new Uint8Array()), pulledSeq: 0 };
@@ -316,6 +354,8 @@ export class SyncEngine {
   /** All sessions on the server, with decrypted metadata and what this device has. */
   async sessions(): Promise<SessionSummary[]> {
     const out: SessionSummary[] = [];
+    const names = new Map<string, string | undefined>();
+    for (const p of await this.remote.listProjects()) names.set(p.id, (await this.projectMeta(p))?.name);
     for (const s of await this.remote.listSessions()) {
       let meta: Partial<SessionMeta> = {};
       try {
@@ -327,6 +367,7 @@ export class SyncEngine {
       out.push({
         id: s.id,
         ...meta,
+        ...(s.project_id ? { project: names.get(s.project_id) } : {}),
         head_seq: s.head_seq,
         updated_at: s.updated_at,
         deleted: s.deleted_at !== null,
@@ -335,4 +376,200 @@ export class SyncEngine {
     }
     return out.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
   }
+
+  // Projects. See "Project identity" in docs/spec.md.
+
+  /** The project id for a cwd, creating the project on first use. */
+  private async projectFor(cwd: string): Promise<string> {
+    const local = await this.projects.resolve(cwd);
+    const tag = await projectTag(this.keys, local.identity);
+    let id = this.projectIds.get(tag);
+    if (id) return id;
+    const find = async () => (await this.remote.listProjects()).find((p) => p.project_tag === tag)?.id;
+    id = await find();
+    if (!id) {
+      id = crypto.randomUUID();
+      const meta: ProjectMeta = { identity: local.identity, name: local.name };
+      try {
+        await this.remote.createProject({ id, project_tag: tag, meta_enc: await sealMeta(this.keys, id, "projects.meta_enc", meta) });
+      } catch (e) {
+        if (!(e instanceof ConflictError)) throw e;
+        id = (await find())!;
+      }
+    }
+    this.projectIds.set(tag, id);
+    return id;
+  }
+
+  private async projectMeta(p: RemoteProject): Promise<ProjectMeta | undefined> {
+    try {
+      return await openMeta<ProjectMeta>(this.keys, p.id, "projects.meta_enc", p.meta_enc);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private get mapFile(): string {
+    return join(this.stateDir, "projects.json");
+  }
+
+  /** Project tag -> local directory, set with mapProject. */
+  private async maps(): Promise<Record<string, string>> {
+    try {
+      return JSON.parse(await readFile(this.mapFile, "utf8")) as Record<string, string>;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return {};
+      throw e;
+    }
+  }
+
+  /** Project tag -> checkout, from the cwds of the local Pi sessions that still exist. */
+  private async localIndex(): Promise<Map<string, string>> {
+    const index = new Map<string, string>();
+    let dirs: string[];
+    try {
+      dirs = await readdir(this.sessionsDir);
+    } catch {
+      return index;
+    }
+    for (const d of dirs.filter((d) => d.startsWith("--")).sort()) {
+      const cwd = await localHeaderCwd(join(this.sessionsDir, d));
+      if (!cwd) continue;
+      const p = await this.projects.resolve(cwd);
+      const tag = await projectTag(this.keys, p.identity);
+      if (!index.has(tag)) index.set(tag, p.root);
+    }
+    return index;
+  }
+
+  /** Where a project's sessions go here: a mapping, the original cwd if it's the same project, or a known checkout. */
+  private async localDir(
+    tag: string,
+    originalCwd: string | undefined,
+    index: () => Promise<Map<string, string>>,
+  ): Promise<ProjectSummary["local"]> {
+    const mapped = (await this.maps())[tag];
+    if (mapped) return { dir: mapped, how: "map" };
+    if (originalCwd && (await isDir(originalCwd))) {
+      const here = await this.projects.resolve(originalCwd);
+      if ((await projectTag(this.keys, here.identity)) === tag) return { dir: originalCwd, how: "found" };
+    }
+    const root = (await index()).get(tag);
+    return root ? { dir: root, how: "found" } : undefined;
+  }
+
+  private async placement(session: RemoteSession, meta: SessionMeta, projects: RemoteProject[]): Promise<string> {
+    const project = projects.find((p) => p.id === session.project_id);
+    // Sessions pushed before projects existed go back where they came from.
+    if (!project) return join(this.sessionsDir, sessionRelPath({ id: session.id, cwd: meta.cwd, timestamp: meta.created_at }));
+    const local = await this.localDir(project.project_tag, meta.cwd, once(() => this.localIndex()));
+    if (local) return join(this.sessionsDir, sessionRelPath({ id: session.id, cwd: local.dir, timestamp: meta.created_at }));
+    const name = (await this.projectMeta(project))?.name ?? project.id;
+    return join(this.sessionsDir, UNMAPPED, safeName(name), sessionFileName({ id: session.id, timestamp: meta.created_at }));
+  }
+
+  /** All projects, with where their sessions go on this machine. */
+  async listProjects(): Promise<ProjectSummary[]> {
+    const [projects, sessions] = await Promise.all([this.remote.listProjects(), this.remote.listSessions()]);
+    const index = once(() => this.localIndex());
+    const out: ProjectSummary[] = [];
+    for (const p of projects) {
+      const meta = await this.projectMeta(p);
+      out.push({
+        id: p.id,
+        name: meta?.name,
+        identity: meta?.identity,
+        sessions: sessions.filter((s) => s.project_id === p.id && s.deleted_at === null).length,
+        local: await this.localDir(p.project_tag, undefined, index),
+      });
+    }
+    return out.sort((a, b) => (a.name ?? a.id).localeCompare(b.name ?? b.id));
+  }
+
+  /**
+   * Points a project at a local directory, by id prefix or name, and moves
+   * its sessions out of _unmapped/ to there.
+   */
+  async mapProject(ref: string, dir: string): Promise<{ project: ProjectSummary; moved: string[] }> {
+    const target = resolve(dir);
+    if (!(await isDir(target))) throw new NotFoundError(`${target} is not a directory`);
+    const all = await this.listProjects();
+    const r = ref.trim().toLowerCase();
+    let matches = all.filter((p) => p.name?.toLowerCase() === r || p.identity?.toLowerCase() === r);
+    if (matches.length === 0 && r.length >= 4) matches = all.filter((p) => p.id.startsWith(r));
+    if (matches.length === 0) throw new NotFoundError(`no project matches ${ref}`);
+    if (matches.length > 1) throw new TypeError(`${ref} matches ${matches.length} projects; use the id`);
+    const project = matches[0]!;
+    const remote = (await this.remote.listProjects()).find((p) => p.id === project.id)!;
+
+    const maps = await this.maps();
+    maps[remote.project_tag] = target;
+    await mkdir(this.stateDir, { recursive: true, mode: 0o700 });
+    const tmp = `${this.mapFile}.${process.pid}.tmp`;
+    await writeFile(tmp, `${JSON.stringify(maps, null, 2)}\n`, { mode: 0o600 });
+    await rename(tmp, this.mapFile);
+
+    const moved: string[] = [];
+    const unmapped = join(this.sessionsDir, UNMAPPED) + sep;
+    for (const s of await this.remote.listSessions()) {
+      if (s.project_id !== project.id) continue;
+      await this.exclusive(s.id, async () => {
+        const st = await this.state.load(s.id);
+        if (!st?.path.startsWith(unmapped)) return;
+        const meta = await openMeta<SessionMeta>(this.keys, s.id, "sessions.meta_enc", s.meta_enc);
+        const path = join(this.sessionsDir, sessionRelPath({ id: s.id, cwd: target, timestamp: meta.created_at }));
+        await mkdir(dirname(path), { recursive: true });
+        await rename(st.path, path);
+        st.path = path;
+        await this.state.save(st);
+        moved.push(path);
+      });
+    }
+    return { project: { ...project, local: { dir: target, how: "map" } }, moved };
+  }
+}
+
+function once<T>(fn: () => Promise<T>): () => Promise<T> {
+  let p: Promise<T> | undefined;
+  return () => (p ??= fn());
+}
+
+async function isDir(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function safeName(name: string): string {
+  return name.replace(/[^\w.-]+/g, "-").replace(/^[.-]+/, "") || "project";
+}
+
+/**
+ * The cwd a Pi session directory belongs to: the first header cwd that maps
+ * to the directory's name and exists here. Pulled sessions keep their
+ * original cwd, which may be another machine's path, so they don't count.
+ */
+async function localHeaderCwd(dir: string): Promise<string | undefined> {
+  let files: string[];
+  try {
+    files = (await readdir(dir)).filter((f) => f.endsWith(".jsonl")).sort();
+  } catch {
+    return undefined;
+  }
+  for (const f of files) {
+    const fh = await open(join(dir, f), "r");
+    try {
+      const buf = new Uint8Array(64 * 1024);
+      const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
+      const { cwd } = parseHeader(new TextDecoder().decode(buf.subarray(0, bytesRead)));
+      if (cwdDirName(cwd) === basename(dir) && (await isDir(cwd))) return cwd;
+    } catch {
+      // Not a session file, or a header longer than 64 KiB; try the next one.
+    } finally {
+      await fh.close();
+    }
+  }
+  return undefined;
 }

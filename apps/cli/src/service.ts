@@ -18,7 +18,15 @@ import { type DeviceRow, VaultClient, jwtSessionId } from "@agentsessionvault/cl
 import type { AccountKeys } from "@agentsessionvault/crypto";
 import type { Remote } from "@agentsessionvault/sync";
 import type { Session } from "@supabase/supabase-js";
-import { ConflictError, NotFoundError, type PullResult, type PushResult, type SessionSummary, SyncEngine } from "@agentsessionvault/sync";
+import {
+  ConflictError,
+  NotFoundError,
+  type ProjectSummary,
+  type PullResult,
+  type PushResult,
+  type SessionSummary,
+  SyncEngine,
+} from "@agentsessionvault/sync";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { hostname } from "node:os";
@@ -282,6 +290,15 @@ export class VaultService {
 
   async sessions(): Promise<SessionSummary[]> {
     return (await this.requireUnlocked()).engine.sessions();
+  }
+
+  async projects(): Promise<ProjectSummary[]> {
+    return (await this.requireUnlocked()).engine.listProjects();
+  }
+
+  /** Points a project at a local directory and moves its unmapped sessions there. */
+  async mapProject(ref: string, dir: string): Promise<{ project: ProjectSummary; moved: string[] }> {
+    return (await this.requireUnlocked()).engine.mapProject(ref, resolve(dir));
   }
 
   async devices(): Promise<DeviceInfo[]> {

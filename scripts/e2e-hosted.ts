@@ -70,10 +70,19 @@ try {
   check(pushA.created && pushA.chunks.length === 1, "a pushes a new session");
 
   // Server only sees ciphertext.
-  const { data: rows } = await admin.from("sessions").select("meta_enc").eq("id", sid).single();
-  check(!JSON.stringify(rows).includes("Hello from A") && !JSON.stringify(rows).includes("/e2e/project"), "metadata is encrypted");
+  // The secret key has no grants on most tables; read the stored rows as a.
+  const asA = (a.svc.client as VaultClient).supabase;
+  const { data: rows } = await asA.from("sessions").select("meta_enc").eq("id", sid).single();
+  check(rows && !JSON.stringify(rows).includes("Hello from A") && !JSON.stringify(rows).includes("/e2e/project"), "metadata is encrypted");
   const { data: obj } = await admin.storage.from("sessions").download((await admin.from("chunks").select("object_name").eq("session_id", sid).single()).data!.object_name);
   check(new TextDecoder().decode(await obj!.arrayBuffer()).startsWith("ASV1") && !(await obj!.text()).includes("Hello"), "the chunk object is encrypted");
+  const { data: projects } = await asA.from("projects").select("id, project_tag, meta_enc");
+  const { data: sessionRow } = await asA.from("sessions").select("project_id").eq("id", sid).single();
+  check(
+    projects?.length === 1 && sessionRow?.project_id === projects[0]!.id && (projects[0]!.project_tag as string).length === 2 + 64,
+    "the push creates a project with a 32-byte tag",
+  );
+  check(!JSON.stringify(projects).includes("e2e/project"), "project metadata is encrypted");
 
   // Device B: sign in with the code, unlock with the passphrase, pull.
   const b = await device("b");
@@ -92,7 +101,10 @@ try {
   check((await b.svc.devices()).length === 2, "b sees both devices");
 
   const pullB = await b.svc.pull(sid);
-  check(pullB.path.startsWith(join(b.root, "pi", "--e2e-project--")), "b pulls into Pi's layout");
+  // /e2e/project doesn't exist on b, so the session waits in _unmapped/.
+  check(pullB.path.startsWith(join(b.root, "pi", "_unmapped", "project")), "b pulls an unknown project into _unmapped/");
+  const projectsB = await b.svc.projects();
+  check(projectsB.length === 1 && projectsB[0]!.identity === "path:/e2e/project" && projectsB[0]!.sessions === 1, "b lists the decrypted project");
   check((await readFile(pullB.path, "utf8")) === (await readFile(fileA, "utf8")), "b's copy matches a's");
 
   // Both continue the session; the result is two branches on both sides.

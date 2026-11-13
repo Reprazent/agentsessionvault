@@ -1,9 +1,20 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { accountSubkeys, generateKey, parseHeader as parseChunkHeader } from "@agentsessionvault/crypto";
-import { appendFile, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ConflictError, MemoryServer, NotFoundError, StateStore, SyncEngine, splitLines } from "../src/index.ts";
+import {
+  ConflictError,
+  type Git,
+  MemoryServer,
+  NotFoundError,
+  ProjectResolver,
+  type RemoteProject,
+  StateStore,
+  SyncEngine,
+  UNMAPPED,
+  splitLines,
+} from "../src/index.ts";
 
 const USER = "a0000000-0000-4000-8000-000000000001";
 const SID = "01a1d47c-9870-7461-a887-70599c34d8ab";
@@ -15,16 +26,24 @@ const enc = (s: string) => new TextEncoder().encode(s);
 let server: MemoryServer;
 let accountKey: Uint8Array;
 
-async function device(name: string, o: { maxChunkBytes?: number; maxAttempts?: number } = {}) {
+/** Git as seen by one device: cwd -> origin URL, and cwd -> top level. */
+function fakeGit(remotes: Record<string, string> = {}, tops: Record<string, string> = {}): Git {
+  return { remote: async (cwd) => remotes[cwd] ?? null, topLevel: async (cwd) => tops[cwd] ?? null };
+}
+
+async function device(name: string, o: { maxChunkBytes?: number; maxAttempts?: number; git?: Git } = {}) {
   const root = await mkdtemp(join(tmpdir(), `asv-${name}-`));
+  const remote = server.remote(USER, `${name}-device`);
   const engine = new SyncEngine({
-    remote: server.remote(USER, `${name}-device`),
+    remote,
     keys: await accountSubkeys(USER, accountKey, 1),
     stateDir: join(root, "state"),
     sessionsDir: join(root, "sessions"),
-    ...o,
+    projects: new ProjectResolver("/home/me", o.git ?? fakeGit()),
+    ...(o.maxChunkBytes ? { maxChunkBytes: o.maxChunkBytes } : {}),
+    ...(o.maxAttempts ? { maxAttempts: o.maxAttempts } : {}),
   });
-  return { root, engine, state: new StateStore(join(root, "state")), file: join(root, "local.jsonl") };
+  return { root, remote, engine, state: new StateStore(join(root, "state")), file: join(root, "local.jsonl") };
 }
 
 beforeEach(() => {
@@ -122,7 +141,7 @@ describe("push", () => {
 });
 
 describe("pull", () => {
-  test("recreates the session on another device under Pi's layout", async () => {
+  test("recreates the session on another device, in _unmapped/ when its project isn't here", async () => {
     const a = await device("a");
     const b = await device("b");
     const content = `${header}\n${entry("e1", null)}\n${entry("e2", "e1")}\n`;
@@ -130,7 +149,7 @@ describe("pull", () => {
     await a.engine.push(a.file);
 
     const r = await b.engine.pull(SID);
-    expect(r.path).toBe(join(b.root, "sessions", "--work-proj--", `2026-11-13T10-38-17-712Z_${SID}.jsonl`));
+    expect(r.path).toBe(join(b.root, "sessions", UNMAPPED, "proj", `2026-11-13T10-38-17-712Z_${SID}.jsonl`));
     expect(r.chunks).toBe(1);
     expect(await readFile(r.path, "utf8")).toBe(content);
     // Fully synced: pushing from b sends nothing.
@@ -282,6 +301,182 @@ describe("two devices", () => {
     const rb = await b.engine.push(b.file);
     expect(rb.created).toBe(false);
     expect(server.sessions.get(SID)!.head_seq).toBe(1);
+  });
+});
+
+describe("projects", () => {
+  const SID2 = "01a1d47c-9870-7461-a887-70599c34d8ac";
+  const TS = "2026-11-13T10-38-17-712Z";
+  const sessionAt = (id: string, cwd: string, ...entries: string[]) =>
+    `${JSON.stringify({ type: "session", version: 3, id, timestamp: "2026-11-13T10:38:17.712Z", cwd })}\n${entries.map((e) => `${e}\n`).join("")}`;
+
+  /** Two machines with the same repo at different paths, cloned over ssh and https. */
+  async function twoCheckouts() {
+    const base = await mkdtemp(join(tmpdir(), "asv-checkouts-"));
+    const repoA = join(base, "laptop", "app");
+    const repoB = join(base, "vm", "src", "app");
+    await mkdir(join(repoA, "web"), { recursive: true });
+    await mkdir(repoB, { recursive: true });
+    const a = await device("a", {
+      git: fakeGit(
+        { [repoA]: "git@github.com:acme/app.git", [join(repoA, "web")]: "git@github.com:acme/app.git" },
+        { [repoA]: repoA, [join(repoA, "web")]: repoA },
+      ),
+    });
+    const b = await device("b", { git: fakeGit({ [repoB]: "https://github.com/acme/app" }, { [repoB]: repoB }) });
+    return { base, repoA, repoB, a, b };
+  }
+
+  test("push assigns one project per remote, with encrypted metadata", async () => {
+    const { repoA, a } = await twoCheckouts();
+    await writeFile(a.file, sessionAt(SID, repoA, entry("e1", null)));
+    await a.engine.push(a.file);
+    const other = join(a.root, "other.jsonl");
+    await writeFile(other, sessionAt(SID2, join(repoA, "web"), entry("f1", null)));
+    await a.engine.push(other);
+
+    expect(server.projects.size).toBe(1);
+    const [p] = [...server.projects.values()] as [RemoteProject];
+    expect(server.sessions.get(SID)!.project_id).toBe(p.id);
+    expect(server.sessions.get(SID2)!.project_id).toBe(p.id);
+    expect(JSON.stringify(p)).not.toContain("acme");
+    expect(await a.engine.listProjects()).toEqual([
+      // Not in Pi's sessions directory, so nothing local points at it.
+      { id: p.id, name: "app", identity: "github.com/acme/app", sessions: 2, local: undefined },
+    ]);
+    expect((await a.engine.sessions()).map((s) => s.project)).toEqual(["app", "app"]);
+  });
+
+  test("push backfills sessions pushed without a project", async () => {
+    const a = await device("a");
+    await writeFile(a.file, `${header}\n${entry("e1", null)}\n`);
+    await a.engine.push(a.file);
+    server.sessions.get(SID)!.project_id = null;
+    await a.engine.push(a.file);
+    const p = [...server.projects.values()][0]!;
+    expect(server.sessions.get(SID)!.project_id).toBe(p.id);
+    expect((await a.engine.listProjects())[0]).toMatchObject({ identity: "path:/work/proj", name: "proj" });
+  });
+
+  test("home-relative paths match across machines", async () => {
+    const a = await device("a");
+    const r = new ProjectResolver("/home/me", fakeGit());
+    expect((await r.resolve("/home/me/notes")).identity).toBe("path:notes");
+    void a;
+  });
+
+  test("pull places a session in this machine's checkout of the same remote", async () => {
+    const { repoA, repoB, a, b } = await twoCheckouts();
+    await writeFile(a.file, sessionAt(SID, join(repoA, "web"), entry("e1", null)));
+    await a.engine.push(a.file);
+    // b knows the repo from a local session of its own.
+    const own = join(b.root, "own.jsonl");
+    await writeFile(own, sessionAt(SID2, repoB, entry("f1", null)));
+    await b.engine.push(own);
+    await mkdir(join(b.root, "sessions", "--elsewhere--"), { recursive: true });
+    await writeFile(join(b.root, "sessions", "--elsewhere--", "x.jsonl"), "not a session\n");
+    await writeFile(join(b.root, "sessions", "--a-file--"), "");
+    const piDir = join(b.root, "sessions", `--${repoB.slice(1).replaceAll("/", "-")}--`);
+    await mkdir(piDir, { recursive: true });
+    await writeFile(join(piDir, "own.jsonl"), sessionAt(SID2, repoB, entry("f1", null)));
+
+    const r = await b.engine.pull(SID);
+    expect(r.path).toBe(join(piDir, `${TS}_${SID}.jsonl`));
+    expect((await b.engine.listProjects())[0]!.local).toEqual({ dir: repoB, how: "found" });
+  });
+
+  test("pull uses the original cwd when it's the same project here", async () => {
+    const { repoA, a } = await twoCheckouts();
+    await writeFile(a.file, sessionAt(SID, join(repoA, "web"), entry("e1", null)));
+    await a.engine.push(a.file);
+    const a2 = await device("a2", { git: fakeGit({ [join(repoA, "web")]: "ssh://git@github.com/acme/app" }) });
+    const r = await a2.engine.pull(SID);
+    expect(r.path).toContain(`--${join(repoA, "web").slice(1).replaceAll("/", "-")}--`);
+  });
+
+  test("sessions without a project go back to their original cwd", async () => {
+    const a = await device("a");
+    await writeFile(a.file, `${header}\n${entry("e1", null)}\n`);
+    await a.engine.push(a.file);
+    server.sessions.get(SID)!.project_id = null;
+    const b = await device("b");
+    expect((await b.engine.pull(SID)).path).toBe(join(b.root, "sessions", "--work-proj--", `${TS}_${SID}.jsonl`));
+  });
+
+  test("map moves unmapped sessions into place and sends later pulls there", async () => {
+    const { repoA, a } = await twoCheckouts();
+    await writeFile(a.file, sessionAt(SID, repoA, entry("e1", null)));
+    await a.engine.push(a.file);
+    const other = join(a.root, "other.jsonl");
+    await writeFile(other, sessionAt(SID2, repoA, entry("f1", null)));
+    await a.engine.push(other);
+
+    const c = await device("c");
+    const first = await c.engine.pull(SID);
+    expect(first.path).toBe(join(c.root, "sessions", UNMAPPED, "app", `${TS}_${SID}.jsonl`));
+    expect((await c.engine.listProjects())[0]!.local).toBeUndefined();
+
+    const target = join(c.root, "checkout");
+    await mkdir(target);
+    const { project, moved } = await c.engine.mapProject("APP", target);
+    const placed = join(c.root, "sessions", `--${target.slice(1).replaceAll("/", "-")}--`, `${TS}_${SID}.jsonl`);
+    expect(project.local).toEqual({ dir: target, how: "map" });
+    expect(moved).toEqual([placed]);
+    expect(await readdir(join(c.root, "sessions", UNMAPPED, "app"))).toEqual([]);
+    expect((await c.state.load(SID))!.path).toBe(placed);
+    expect((await c.engine.pull(SID2)).path).toBe(placed.replace(SID, SID2));
+    // Changes still flow into the moved file.
+    await appendFile(a.file, `${entry("e2", "e1")}\n`);
+    await a.engine.push(a.file);
+    expect((await c.engine.pull(SID)).path).toBe(placed);
+    expect(await readFile(placed, "utf8")).toContain('"e2"');
+    // By id prefix works too, and moves nothing new.
+    expect((await c.engine.mapProject(project.id.slice(0, 8), target)).moved).toEqual([]);
+  });
+
+  test("map refuses missing directories and unknown or ambiguous projects", async () => {
+    const a = await device("a", { git: fakeGit({ "/x/one": "git@github.com:a/app.git", "/x/two": "git@gitlab.com:b/app.git" }) });
+    for (const [id, cwd] of [[SID, "/x/one"], [SID2, "/x/two"]] as const) {
+      const f = join(a.root, `${id}.jsonl`);
+      await writeFile(f, sessionAt(id, cwd, entry(`e-${id}`, null)));
+      await a.engine.push(f);
+    }
+    await expect(a.engine.mapProject("app", join(a.root, "nope"))).rejects.toBeInstanceOf(NotFoundError);
+    await expect(a.engine.mapProject("app", a.root)).rejects.toThrow("matches 2 projects");
+    await expect(a.engine.mapProject("zzzz", a.root)).rejects.toThrow("no project matches");
+    expect((await a.engine.mapProject("gitlab.com/b/app", a.root)).project.identity).toBe("gitlab.com/b/app");
+  });
+
+  test("losing the createProject race uses the winner's project", async () => {
+    const a = await device("a");
+    const winner: RemoteProject = { id: "b0000000-0000-4000-8000-000000000001", project_tag: "", meta_enc: {} as RemoteProject["meta_enc"] };
+    const create = a.remote.createProject.bind(a.remote);
+    a.remote.createProject = async (row) => {
+      await create({ ...winner, project_tag: row.project_tag, meta_enc: row.meta_enc });
+      throw new ConflictError("project exists");
+    };
+    await writeFile(a.file, `${header}\n${entry("e1", null)}\n`);
+    await a.engine.push(a.file);
+    expect(server.sessions.get(SID)!.project_id).toBe(winner.id);
+    // Undecryptable project metadata (sealed for another id) doesn't break listing.
+    expect((await a.engine.listProjects())[0]).toMatchObject({ id: winner.id, name: undefined, sessions: 1 });
+  });
+
+  test("createProject errors other than conflicts propagate", async () => {
+    const a = await device("a");
+    a.remote.createProject = async () => {
+      throw new Error("boom");
+    };
+    await writeFile(a.file, `${header}\n${entry("e1", null)}\n`);
+    await expect(a.engine.push(a.file)).rejects.toThrow("boom");
+  });
+
+  test("a broken map file is an error, not an empty map", async () => {
+    const a = await device("a");
+    await mkdir(join(a.root, "state", "projects.json"), { recursive: true });
+    await writeFile(a.file, `${header}\n${entry("e1", null)}\n`);
+    await a.engine.push(a.file);
+    await expect(a.engine.listProjects()).rejects.toThrow();
   });
 });
 

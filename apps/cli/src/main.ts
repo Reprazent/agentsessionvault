@@ -8,7 +8,8 @@ import { handlers, unlockAtStart } from "./daemon.ts";
 import { prompt } from "./prompt.ts";
 import { DaemonClient, serve } from "./protocol.ts";
 import { type DeviceInfo, type Status, VaultService } from "./service.ts";
-import type { PullResult, PushResult, SessionSummary } from "@agentsessionvault/sync";
+import type { ProjectSummary, PullResult, PushResult, SessionSummary } from "@agentsessionvault/sync";
+import { resolve } from "node:path";
 
 const USAGE = `agentsessionvault: end-to-end encrypted sync for agent sessions
 
@@ -23,6 +24,8 @@ Usage:
   agentsessionvault push <session.jsonl>    push a Pi session file
   agentsessionvault pull <session-id> [--out <path>]
   agentsessionvault sessions [--json]
+  agentsessionvault projects [--json]
+  agentsessionvault map <project> [dir]     sessions of a project go to dir (default: here)
   agentsessionvault devices [--json]
   agentsessionvault devices revoke <device-id>
   agentsessionvault logout
@@ -235,10 +238,34 @@ export async function main(argv: string[]): Promise<number> {
         for (const s of list) {
           const flags = [s.deleted ? "deleted" : "", s.local ? "local" : "remote only"].filter(Boolean).join(", ");
           out(`${s.id}  seq ${s.head_seq}  ${s.updated_at.slice(0, 16).replace("T", " ")}  ${flags}`);
-          out(`    ${s.title ?? "(untitled)"}  ${s.cwd ?? ""}`);
+          out(`    ${s.title ?? "(untitled)"}  ${s.project ? `[${s.project}]  ` : ""}${s.cwd ?? ""}`);
         }
         return 0;
       });
+
+    case "projects":
+      return withDaemon(async (c) => {
+        const list = await c.call<ProjectSummary[]>("projects");
+        if (values.json) return (out(JSON.stringify(list, null, 2)), 0);
+        if (!list.length) return (out("no projects yet"), 0);
+        for (const p of list) {
+          out(`${p.id.slice(0, 8)}  ${p.name ?? "(undecryptable)"}  ${p.identity ?? ""}  ${p.sessions} session(s)`);
+          out(`    ${p.local ? `${p.local.dir}${p.local.how === "map" ? " (mapped)" : ""}` : "not on this machine: pulls go to _unmapped/"}`);
+        }
+        return 0;
+      });
+
+    case "map": {
+      const project = args[0];
+      if (!project) throw new TypeError("usage: agentsessionvault map <project> [dir]");
+      const dir = resolve(args[1] ?? process.cwd());
+      return withDaemon(async (c) => {
+        const r = await c.call<{ project: ProjectSummary; moved: string[] }>("map", { project, dir });
+        out(`${r.project.name ?? r.project.id} -> ${dir}`);
+        for (const m of r.moved) out(`  moved ${m}`);
+        return 0;
+      });
+    }
 
     case "devices":
       if (args[0] === "revoke") {

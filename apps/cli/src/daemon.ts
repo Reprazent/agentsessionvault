@@ -57,6 +57,12 @@ export function handlers(svc: VaultService, log: (m: string) => void): Record<st
       return r;
     },
     sessions: () => svc.sessions(),
+    projects: () => svc.projects(),
+    map: async (p) => {
+      const r = await svc.mapProject(str(p, "project"), str(p, "dir"));
+      log(`mapped project ${r.project.id}, moved ${r.moved.length} session(s)`);
+      return r;
+    },
     devices: () => svc.devices(),
     revokeDevice: async (p) => {
       const d = await svc.revokeDevice(str(p, "id"));
