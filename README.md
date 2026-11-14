@@ -105,7 +105,7 @@ To keep a development setup apart from your real one, start Pi with `AGENTSESSIO
 
 ### Releasing
 
-Releases are automatic. On every push to `main`, `.github/workflows/release.yml` tests and then runs [semantic-release](https://semantic-release.gitbook.io/), which reads the conventional commits since the last tag: `fix:` makes a patch release, `feat:` a minor one, and `BREAKING CHANGE:` (or `feat!:`) a major one. Other types (`docs:`, `refactor:`, `chore:`, …) don't release.
+Releases are automatic. On every push to `main`, `.github/workflows/main.yml` tests, deploys to production (see Deploying) and then runs [semantic-release](https://semantic-release.gitbook.io/), which reads the conventional commits since the last tag: `fix:` makes a patch release, `feat:` a minor one, and `BREAKING CHANGE:` (or `feat!:`) a major one. Other types (`docs:`, `refactor:`, `chore:`, …) don't release.
 
 For a release, it sets the version in the root `package.json` (shared by the CLI, the daemon and the extension), builds all four binaries plus `SHA256SUMS` with `bun scripts/build-release.ts`, commits `package.json` as `chore(release): v<version> [skip ci]`, tags that commit, and publishes the GitHub release with notes and binaries. An extension installed at that tag downloads exactly those binaries. Config: `.releaserc.json`.
 
@@ -143,10 +143,23 @@ Creates a throwaway user with the admin API and signs devices in with tokens fro
 
 ### Deploying
 
-    supabase db push --remote
-    supabase functions deploy upload-url --use-api --no-verify-jwt
+Production deploys from `main`. After the tests pass, the `deploy` job in `.github/workflows/main.yml` runs:
 
-`--use-api` bundles the function on Supabase's side, so no Docker. The function checks the token itself.
+    supabase link --project-ref "$SUPABASE_PROJECT_ID"
+    supabase db push --remote --yes
+    supabase functions deploy upload-url --use-api --no-verify-jwt --yes
+
+`db push` only applies migrations production doesn't have yet (it prints them with `--dry-run` first). `--use-api` bundles the function on Supabase's side, so no Docker. The function checks the token itself. The release job runs after the deploy, so a new client never meets an old schema; migrations have to keep the previous release working.
+
+The job runs in the GitHub Environment `production`, which only `main` may deploy to. It holds:
+
+| Name | Kind | |
+|---|---|---|
+| `SUPABASE_PROJECT_ID` | variable | the project ref |
+| `SUPABASE_DB_PASSWORD` | secret | the database password |
+| `SUPABASE_ACCESS_TOKEN` | secret | a Supabase personal access token for CI |
+
+Don't run `db push` against production by hand; merge to `main` instead.
 
 ### `pnpm test:db` (hosted)
 
