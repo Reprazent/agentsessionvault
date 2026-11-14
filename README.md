@@ -159,6 +159,18 @@ The job runs in the GitHub Environment `production`, which only `main` may deplo
 | `SUPABASE_DB_PASSWORD` | secret | the database password |
 | `SUPABASE_ACCESS_TOKEN` | secret | a Supabase personal access token for CI |
 
+The access token needs these permissions (from the Management API's `x-fga-permissions`):
+
+| Permission | Used by |
+|---|---|
+| `project_admin_read` | `supabase link` |
+| `api_gateway_keys_read`, `api_gateway_keys_secret_read` | `supabase link` |
+| `storage_config_read` | `supabase link` |
+| `database_pooling_config_read` | `supabase link`, for the session pooler's address. Without it `link` still succeeds, but `db push` tries the IPv6-only direct host, which GitHub's runners can't reach. |
+| `edge_functions_write` | `supabase functions deploy` |
+
+Migrations use the database password, not the token.
+
 Don't run `db push` against production by hand; merge to `main` instead.
 
 ### `pnpm test:db` (hosted)

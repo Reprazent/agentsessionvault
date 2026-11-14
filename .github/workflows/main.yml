@@ -50,7 +50,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
-      - run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+      # link stores the session pooler's address only if the token may read
+      # it; without it, db push tries the IPv6-only direct host, which
+      # GitHub's runners can't reach.
+      - name: Link
+        run: |
+          supabase link --project-ref "$SUPABASE_PROJECT_ID"
+          test -s supabase/.temp/pooler-url || {
+            echo "::error::no pooler address; the access token needs database_pooling_config_read"
+            exit 1
+          }
       - name: Migrations
         run: |
           supabase db push --remote --dry-run
