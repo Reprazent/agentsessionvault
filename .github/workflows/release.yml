@@ -1,26 +1,37 @@
-# On a version tag (v<package.json version>): test, build the daemon for
-# each platform, and publish them with SHA256SUMS as a GitHub release. The
-# Pi extension of that version downloads its daemon from there.
+# On every push to main: test, then let semantic-release read the
+# conventional commits since the last tag. If they call for a release
+# (fix: patch, feat: minor, BREAKING CHANGE: major), it:
+#   1. sets the version in package.json and builds the binaries with it
+#   2. commits package.json and tags that commit v<version>
+#   3. publishes a GitHub release with the binaries and SHA256SUMS
+# The tag points at a commit whose package.json has the same version, so
+# an extension installed at that tag downloads exactly those binaries.
 name: release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
 
 permissions:
   contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: macos-latest # signs the darwin binaries; cross-compiles linux
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: jdx/mise-action@v2
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: bun test
-      - run: bun scripts/build-release.ts --tag "$GITHUB_REF_NAME"
-      - name: Publish
+      - run: pnpm exec semantic-release
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/release/* --title "$GITHUB_REF_NAME" --generate-notes
+          GITHUB_TOKEN: ${{ github.token }}

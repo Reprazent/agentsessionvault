@@ -13,6 +13,7 @@
     ]
   },
   "scripts": {
+    "release:dry": "semantic-release --dry-run --no-ci",
     "test": "bun test",
     "typecheck": "pnpm -r --parallel typecheck",
     "test:db": "bun scripts/db-test-remote.ts",
@@ -23,8 +24,12 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.16",
+    "@semantic-release/exec": "^7.1.0",
+    "@semantic-release/git": "^11.0.1",
     "@supabase/supabase-js": "^2.119.0",
     "@types/bun": "^1.4.4",
+    "conventional-changelog-conventionalcommits": "^10.4.1",
+    "semantic-release": "^25.0.9",
     "typescript": "^7.0.2"
   }
 }

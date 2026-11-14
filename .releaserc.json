@@ -1,0 +1,18 @@
+{
+  "branches": ["main"],
+  "tagFormat": "v${version}",
+  "plugins": [
+    ["@semantic-release/commit-analyzer", { "preset": "conventionalcommits" }],
+    ["@semantic-release/release-notes-generator", { "preset": "conventionalcommits" }],
+    ["@semantic-release/exec", {
+      "prepareCmd": "npm pkg set version=${nextRelease.version} && bun scripts/build-release.ts --tag v${nextRelease.version}"
+    }],
+    ["@semantic-release/git", {
+      "assets": ["package.json"],
+      "message": "chore(release): v${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+    }],
+    ["@semantic-release/github", {
+      "assets": [{ "path": "dist/release/*" }]
+    }]
+  ]
+}

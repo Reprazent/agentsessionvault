@@ -65,7 +65,7 @@ No Docker needed.
 
 ### Installing from GitHub
 
-    pi install git:github.com/Reprazent/agentsessionvault@v0.1.0
+    pi install git:github.com/Reprazent/agentsessionvault@v<version>
 
 The repo root is the Pi package. Pi clones it and runs `npm install`, which installs nothing (there are no runtime dependencies). On first start, the extension downloads the daemon for its own version from the GitHub release `v<version>` (`asv-<os>-<arch>`, macOS and Linux, arm64 and x64), checks it against the release's `SHA256SUMS`, and keeps it in `~/.local/share/agentsessionvault/bin/<version>/`. The footer shows `vault: downloading daemon` meanwhile. If the download fails, it falls back to `asv` on the `PATH`.
 
@@ -92,7 +92,11 @@ To keep a development setup apart from your real one, start Pi with `AGENTSESSIO
 
 ### Releasing
 
-The version lives in the root `package.json` and is shared by the CLI, the daemon and the extension. To release, bump it, commit, and push a tag `v<version>`. `.github/workflows/release.yml` tests, runs `bun scripts/build-release.ts --tag v<version>` (all four binaries plus `SHA256SUMS` in `dist/release/`) and publishes them as a GitHub release. An extension installed at that tag downloads exactly those binaries. Run the script locally to check a build; `AGENTSESSIONVAULT_RELEASES_URL` points the extension at another server for testing.
+Releases are automatic. On every push to `main`, `.github/workflows/release.yml` tests and then runs [semantic-release](https://semantic-release.gitbook.io/), which reads the conventional commits since the last tag: `fix:` makes a patch release, `feat:` a minor one, and `BREAKING CHANGE:` (or `feat!:`) a major one. Other types (`docs:`, `refactor:`, `chore:`, …) don't release.
+
+For a release, it sets the version in the root `package.json` (shared by the CLI, the daemon and the extension), builds all four binaries plus `SHA256SUMS` with `bun scripts/build-release.ts`, commits `package.json` as `chore(release): v<version> [skip ci]`, tags that commit, and publishes the GitHub release with notes and binaries. An extension installed at that tag downloads exactly those binaries. Config: `.releaserc.json`.
+
+Run `bun scripts/build-release.ts` locally to check a build, or `pnpm release:dry` to see what the next release would be (needs `GITHUB_TOKEN`). `AGENTSESSIONVAULT_RELEASES_URL` points the extension at another server for testing.
 
 ## Local testing
 
