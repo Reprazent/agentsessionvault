@@ -26,7 +26,7 @@ import { appendFile, mkdir, open, readFile, readdir, rename, stat, writeFile } f
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { type ProjectMeta, ProjectResolver } from "./project.ts";
-import { ConflictError, ForeignSessionError, NotFoundError, type Remote, type RemoteProject, type RemoteSession } from "./remote.ts";
+import { ConflictError, NotFoundError, type Remote, type RemoteProject, type RemoteSession } from "./remote.ts";
 import { type LocalSessionState, StateStore } from "./state.ts";
 
 /** Encrypted in `sessions.meta_enc`. */
@@ -231,10 +231,7 @@ export class SyncEngine {
       } catch (e) {
         if (!(e instanceof ConflictError)) throw e;
       }
-      const visible = await this.remote.getSession(id);
-      // Exists, but not for us: another account's row, hidden by RLS.
-      if (!visible) throw new ForeignSessionError(id);
-      session = visible;
+      session = (await this.remote.getSession(id))!;
     } else if (session.deleted_at === null) {
       const old = await openMeta<SessionMeta>(this.keys, id, "sessions.meta_enc", session.meta_enc);
       if (old.title !== meta.title) await this.remote.updateSessionMeta(id, await sealMeta(this.keys, id, "sessions.meta_enc", meta));

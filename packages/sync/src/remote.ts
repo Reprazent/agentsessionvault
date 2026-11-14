@@ -37,18 +37,6 @@ export class ConflictError extends Error {
   override name = "ConflictError";
 }
 
-/**
- * The session id exists on the server but belongs to another account, so it
- * can't be pushed from this one. Session ids are global; this happens when
- * two accounts sync the same session files.
- */
-export class ForeignSessionError extends Error {
-  override name = "ForeignSessionError";
-  constructor(readonly sessionId: string) {
-    super(`session ${sessionId} already belongs to another account`);
-  }
-}
-
 export class NotFoundError extends Error {
   override name = "NotFoundError";
 }

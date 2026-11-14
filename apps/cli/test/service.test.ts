@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { type DeviceRow, NotSignedInError, RevokedDeviceError } from "@agentsessionvault/client";
 import type { AccountKeys } from "@agentsessionvault/crypto";
-import { ConflictError, ForeignSessionError, MemoryServer } from "@agentsessionvault/sync";
+import { ConflictError, MemoryServer } from "@agentsessionvault/sync";
 import type { Session } from "@supabase/supabase-js";
 import { appendFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
@@ -515,17 +515,17 @@ describe("auto-push", () => {
     await a.svc.setup({ passphrase: PASS });
     // The startup scan pushes what's there.
     await a.svc.nudge();
-    expect(server.sync.sessions.get(sid)?.head_seq).toBe(1);
+    expect(server.sync.session(sid)?.head_seq).toBe(1);
     expect((await a.svc.status()).sync).toMatchObject({ watching: true, pending: 0 });
 
     await appendFile(file, line("e2", "e1"));
-    for (let i = 0; i < 200 && server.sync.sessions.get(sid)!.head_seq < 2; i++) await new Promise((r) => setTimeout(r, 10));
-    expect(server.sync.sessions.get(sid)!.head_seq).toBe(2);
+    for (let i = 0; i < 200 && server.sync.session(sid)!.head_seq < 2; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(server.sync.session(sid)!.head_seq).toBe(2);
 
     await appendFile(file, line("e3", "e2"));
     // A late watch event may queue another check, so no assertion on pending.
     await a.svc.nudge(file);
-    expect(server.sync.sessions.get(sid)!.head_seq).toBe(3);
+    expect(server.sync.session(sid)!.head_seq).toBe(3);
 
     await a.svc.close();
     expect((await a.svc.status()).sync).toBeUndefined();
@@ -538,14 +538,13 @@ describe("auto-push", () => {
     const file = join(a.root, "s.jsonl");
     await writeFile(file, `{"type":"session","version":3,"id":"${sid}","timestamp":"2026-11-13T10:38:17.712Z","cwd":"/p"}\n${line("e1", null)}`);
     expect(await a.svc.nudge(file)).toEqual({ watching: false, pending: 0 });
-    expect(server.sync.sessions.get(sid)?.head_seq).toBe(1);
+    expect(server.sync.session(sid)?.head_seq).toBe(1);
     expect(await a.svc.nudge()).toEqual({ watching: false, pending: 0 });
   });
 
   test("signed out or revoked stops retrying, other errors don't", () => {
     expect(stopsAutoPush(new NotSignedInError())).toBe(true);
     expect(stopsAutoPush(new RevokedDeviceError())).toBe(true);
-    expect(stopsAutoPush(new ForeignSessionError("s1"))).toBe(true);
     expect(stopsAutoPush(new Error("fetch failed"))).toBe(false);
   });
 

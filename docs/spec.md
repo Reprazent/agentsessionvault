@@ -188,7 +188,7 @@ projects (
 )
 
 sessions (
-  id             uuid primary key,         -- Pi's session id when it's a UUID, else random
+  id             uuid not null,            -- Pi's session id when it's a UUID, else random
   user_id        uuid not null references accounts,
   project_id     uuid references projects,
   harness        text not null,            -- pi | claude-code | opencode
@@ -197,11 +197,12 @@ sessions (
   meta_enc       jsonb not null,           -- envelope: title, original cwd, created_at, model
   head_seq       int not null default 0,
   updated_at     timestamptz not null default now(),
-  deleted_at     timestamptz
+  deleted_at     timestamptz,
+  primary key (user_id, id)                -- ids come from the harness: unique per account only
 )
 
 chunks (
-  session_id   uuid not null references sessions,
+  session_id   uuid not null,
   seq          int not null,
   user_id      uuid not null references accounts,  -- denormalised so RLS needs no join
   object_name  text not null,              -- random, see Storage layout
@@ -209,7 +210,8 @@ chunks (
   device_id    uuid not null references devices,
   size         int not null,
   created_at   timestamptz not null default now(),
-  primary key (session_id, seq)
+  primary key (user_id, session_id, seq),
+  foreign key (user_id, session_id) references sessions
 )
 ```
 
@@ -221,7 +223,7 @@ The block above is shorthand. The migrations follow the SQL style guide: lowerca
 
 `harness` stays in plain text because the server needs nothing else to route conversions later, and hiding it buys little. I could be talked out of that.
 
-This is more than "user info and salts", deliberately. Sessions and chunks need an index somewhere, and the alternative (one encrypted manifest object per account, as `ersintarhan/pi-sync` does) turns every push into a read-modify-write on a single object with no transactions. Rows with a unique `(session_id, seq)` give atomic appends and conflict detection for free. What leaks is counts, sizes and timestamps, which the storage bucket leaks anyway.
+This is more than "user info and salts", deliberately. Sessions and chunks need an index somewhere, and the alternative (one encrypted manifest object per account, as `ersintarhan/pi-sync` does) turns every push into a read-modify-write on a single object with no transactions. Rows with a unique `(user_id, session_id, seq)` give atomic appends and conflict detection for free. What leaks is counts, sizes and timestamps, which the storage bucket leaks anyway.
 
 ## Storage layout
 
@@ -365,6 +367,3 @@ Not planned in a milestone yet.
   - When an identity changes from `path:…` to a remote, move all sessions of the old project, carry local maps over, and delete the old project row if it's empty.
   - Merge projects by hand (`projects merge <from> <into>`) when a repo moves between remotes, since guessing that two remotes are the same repo isn't safe.
 
-### Session ids are global
-
-`sessions.id` is the harness's session id and the table's primary key, so a session file can only belong to one account. A second account pushing the same file gets a `ForeignSessionError` and auto-push stops for that file. It also tells that account the id exists elsewhere. If that matters, key sessions by `(user_id, id)`.

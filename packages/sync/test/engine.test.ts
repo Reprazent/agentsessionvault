@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   ConflictError,
-  ForeignSessionError,
   type Git,
   MemoryServer,
   NotFoundError,
@@ -71,16 +70,24 @@ describe("splitLines", () => {
 });
 
 describe("push", () => {
-  test("a session id another account already has fails clearly", async () => {
+  test("two accounts push the same session id independently", async () => {
+    const OTHER = "b0000000-0000-4000-8000-000000000002";
     const a = await device("a");
-    const other = await device("other", { user: "b0000000-0000-4000-8000-000000000002" });
+    const other = await device("other", { user: OTHER });
     await writeFile(a.file, `${header}\n${entry("e1", null)}\n`);
-    await writeFile(other.file, `${header}\n${entry("e1", null)}\n`);
+    await writeFile(other.file, `${header}\n${entry("x1", null)}\n${entry("x2", "x1")}\n`);
     await a.engine.push(a.file);
-    const e = await other.engine.push(other.file).catch((x) => x);
-    expect(e).toBeInstanceOf(ForeignSessionError);
-    expect(e.message).toBe(`session ${SID} already belongs to another account`);
-    expect(await other.engine.sessions()).toEqual([]);
+    expect((await other.engine.push(other.file)).created).toBe(true);
+    await appendFile(a.file, `${entry("e2", "e1")}\n`);
+    await a.engine.push(a.file);
+    expect(server.session(SID, USER)!.head_seq).toBe(2);
+    expect(server.session(SID, OTHER)!.head_seq).toBe(1);
+    expect(() => server.session(SID)).toThrow("several users");
+    expect(() => server.chunksOf(SID)).toThrow("several users");
+    expect((await other.engine.sessions()).map((s) => s.id)).toEqual([SID]);
+    // Each account's copy decrypts with its own keys.
+    expect((await other.engine.pull(SID)).chunks).toBe(0);
+    expect(await readFile(other.file, "utf8")).toContain('"x2"');
   });
 
   test("creates the session and pushes complete lines only", async () => {
@@ -92,12 +99,12 @@ describe("push", () => {
     expect(r.chunks[0]!.seq).toBe(1);
     expect(r.chunks[0]!.kind).toBe("append");
 
-    const s = server.sessions.get(SID)!;
+    const s = server.session(SID)!;
     expect(s.head_seq).toBe(1);
     expect(s.harness).toBe("pi");
     expect(JSON.stringify(s.meta_enc)).not.toContain("Fix the build");
 
-    const obj = server.objects.get(server.chunks.get(SID)![0]!.object_name)!;
+    const obj = server.objects.get(server.chunksOf(SID)![0]!.object_name)!;
     expect(parseChunkHeader(obj).keyId).toBe(0);
     expect(new TextDecoder().decode(obj)).not.toContain("e1");
 
@@ -138,12 +145,12 @@ describe("push", () => {
     const a = await device("a");
     await writeFile(a.file, `${header}\n${entry("e1", null, "first")}\n`);
     await a.engine.push(a.file);
-    const before = server.sessions.get(SID)!.meta_enc;
+    const before = server.session(SID)!.meta_enc;
     await a.engine.push(a.file);
-    expect(server.sessions.get(SID)!.meta_enc).toEqual(before);
+    expect(server.session(SID)!.meta_enc).toEqual(before);
     await appendFile(a.file, `{"type":"session_info","id":"i1","parentId":"e1","name":"Renamed"}\n`);
     await a.engine.push(a.file);
-    expect(server.sessions.get(SID)!.meta_enc).not.toEqual(before);
+    expect(server.session(SID)!.meta_enc).not.toEqual(before);
     expect((await a.engine.sessions())[0]!.title).toBe("Renamed");
   });
 
@@ -208,7 +215,7 @@ describe("pull", () => {
     await a.engine.push(a.file);
     await appendFile(a.file, `${entry("e2", "e1")}\n`);
     await a.engine.push(a.file);
-    server.chunks.get(SID)!.shift();
+    server.chunksOf(SID)!.shift();
     await expect(b.engine.pull(SID)).rejects.toThrow("chunk 1 of");
   });
 
@@ -217,7 +224,7 @@ describe("pull", () => {
     const b = await device("b");
     await writeFile(a.file, `${header}\n${entry("e1", null)}\n`);
     await a.engine.push(a.file);
-    const name = server.chunks.get(SID)![0]!.object_name;
+    const name = server.chunksOf(SID)![0]!.object_name;
     server.objects.get(name)![40]! ^= 1;
     await expect(b.engine.pull(SID)).rejects.toThrow("failed to decrypt");
   });
@@ -267,7 +274,7 @@ describe("two devices", () => {
     const rb = await b.engine.push(bPath);
     expect(rb.chunks.map((c) => c.seq)).toEqual([3]);
     expect(await readFile(bPath, "utf8")).toContain('"a2"');
-    expect(server.chunks.get(SID)!.map((c) => c.device_id)).toEqual(["a-device", "a-device", "b-device"]);
+    expect(server.chunksOf(SID)!.map((c) => c.device_id)).toEqual(["a-device", "a-device", "b-device"]);
   });
 
   test("gives up after maxAttempts conflicts", async () => {
@@ -314,7 +321,7 @@ describe("two devices", () => {
     };
     const rb = await b.engine.push(b.file);
     expect(rb.created).toBe(false);
-    expect(server.sessions.get(SID)!.head_seq).toBe(1);
+    expect(server.session(SID)!.head_seq).toBe(1);
   });
 });
 
@@ -351,8 +358,8 @@ describe("projects", () => {
 
     expect(server.projects.size).toBe(1);
     const [p] = [...server.projects.values()] as [RemoteProject];
-    expect(server.sessions.get(SID)!.project_id).toBe(p.id);
-    expect(server.sessions.get(SID2)!.project_id).toBe(p.id);
+    expect(server.session(SID)!.project_id).toBe(p.id);
+    expect(server.session(SID2)!.project_id).toBe(p.id);
     expect(JSON.stringify(p)).not.toContain("acme");
     expect(await a.engine.listProjects()).toEqual([
       // Not in Pi's sessions directory, so nothing local points at it.
@@ -365,10 +372,10 @@ describe("projects", () => {
     const a = await device("a");
     await writeFile(a.file, `${header}\n${entry("e1", null)}\n`);
     await a.engine.push(a.file);
-    server.sessions.get(SID)!.project_id = null;
+    server.session(SID)!.project_id = null;
     await a.engine.push(a.file);
     const p = [...server.projects.values()][0]!;
-    expect(server.sessions.get(SID)!.project_id).toBe(p.id);
+    expect(server.session(SID)!.project_id).toBe(p.id);
     expect((await a.engine.listProjects())[0]).toMatchObject({ identity: "path:/work/proj", name: "proj" });
   });
 
@@ -412,7 +419,7 @@ describe("projects", () => {
     const a = await device("a");
     await writeFile(a.file, `${header}\n${entry("e1", null)}\n`);
     await a.engine.push(a.file);
-    server.sessions.get(SID)!.project_id = null;
+    server.session(SID)!.project_id = null;
     const b = await device("b");
     expect((await b.engine.pull(SID)).path).toBe(join(b.root, "sessions", "--work-proj--", `${TS}_${SID}.jsonl`));
   });
@@ -471,7 +478,7 @@ describe("projects", () => {
     };
     await writeFile(a.file, `${header}\n${entry("e1", null)}\n`);
     await a.engine.push(a.file);
-    expect(server.sessions.get(SID)!.project_id).toBe(winner.id);
+    expect(server.session(SID)!.project_id).toBe(winner.id);
     // Undecryptable project metadata (sealed for another id) doesn't break listing.
     expect((await a.engine.listProjects())[0]).toMatchObject({ id: winner.id, name: undefined, sessions: 1 });
   });
@@ -529,7 +536,7 @@ describe("sessions", () => {
     const a = await device("a");
     await writeFile(a.file, `${header}\n${entry("e1", null)}\n`);
     await a.engine.push(a.file);
-    server.sessions.get(SID)!.meta_enc.tag = "AAAAAAAAAAAAAAAAAAAAAA==";
+    server.session(SID)!.meta_enc.tag = "AAAAAAAAAAAAAAAAAAAAAA==";
     const [s] = await a.engine.sessions();
     expect(s!.id).toBe(SID);
     expect(s!.title).toBeUndefined();

@@ -1,7 +1,7 @@
 begin;
 create extension if not exists "pgtap" with schema "extensions";
 
-select plan(35);
+select plan(40);
 
 -- Fixtures, as the table owner. Two users; alice has two auth sessions
 -- (an active device and a revoked one), bob has one.
@@ -168,7 +168,29 @@ select throws_ok(
   'bob cannot commit into alice''s session'
 );
 
--- Silently matches no rows; checked from alice's side below.
+-- Session ids are per account: bob can push a session with the same id.
+
+select lives_ok(
+  $$ insert into "public"."sessions" ("id", "user_id", "harness", "session_key", "account_key_version", "meta_enc")
+     values ('c0000000-0000-4000-8000-000000000001', 'b0000000-0000-4000-8000-000000000001', 'pi', '{}', 1, '{}') $$,
+  'bob can create a session with the same id as alice''s'
+);
+select lives_ok(
+  $$ select "public"."commit_chunk"('c0000000-0000-4000-8000-000000000001', 1,
+       'b0000000-0000-4000-8000-000000000001/c0000000-0000-4000-8000-000000000001/1-qrstuvwxyzabcdef.bin', 'append', 100) $$,
+  'bob commits seq 1 into his own copy'
+);
+select lives_ok(
+  $$ select "public"."commit_chunk"('c0000000-0000-4000-8000-000000000001', 2,
+       'b0000000-0000-4000-8000-000000000001/c0000000-0000-4000-8000-000000000001/2-qrstuvwxyzabcdef.bin', 'append', 100) $$,
+  'and seq 2'
+);
+select is(
+  (select array_agg("head_seq") from "public"."sessions"), array[2],
+  'bob sees only his copy, at head_seq 2'
+);
+
+-- Matches only bob's copy; alice's is checked from her side below.
 update "public"."sessions" set "deleted_at" = now();
 
 -- Revocation: alice signs in on a second device, which revokes the first.
@@ -180,6 +202,11 @@ values ('d0000000-0000-4000-8000-000000000003', 'a0000000-0000-4000-8000-0000000
 select is(
   (select "deleted_at" from "public"."sessions" where "id" = 'c0000000-0000-4000-8000-000000000001'),
   null::timestamptz, 'bob could not soft-delete alice''s session'
+);
+
+select is(
+  (select "head_seq" from "public"."sessions" where "id" = 'c0000000-0000-4000-8000-000000000001'),
+  1, 'bob''s commits did not move alice''s head_seq'
 );
 
 select lives_ok(
