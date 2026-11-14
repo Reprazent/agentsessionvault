@@ -28,10 +28,10 @@ jobs:
   release:
     runs-on: macos-latest # signs the darwin binaries; cross-compiles linux
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v5
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: bun test
