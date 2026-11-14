@@ -61,7 +61,20 @@ No Docker needed.
 
 ## Pi extension
 
-`apps/pi-extension` connects Pi to the daemon. On session start it connects, or starts `asv daemon --idle-exit` in the background, and keeps the connection open while Pi runs. The footer shows `vault: signed out`, `locked`, `synced`, `2 queued` or `push failed`. After each run it asks the daemon to push the session right away. `/vault` shows the details. Signing in, setup and unlocking still happen in the CLI.
+`apps/pi-extension` connects Pi to the daemon. On session start it connects, or starts `asv daemon --idle-exit` in the background, and keeps the connection open while Pi runs. The footer shows `vault: signed out`, `locked`, `synced`, `2 queued` or `push failed`. After each run it asks the daemon to push the session right away.
+
+Everything else goes through `/vault`:
+
+| Command | |
+|---|---|
+| `/vault` | Sync status |
+| `/vault login [email]` | Emails a sign-in link. Open it on this machine, or paste the code. Continues with setup or unlock. |
+| `/vault setup` | First device: choose or generate a passphrase, then shows the recovery key once |
+| `/vault unlock [--recovery]` | Unlock with the passphrase, or the recovery key |
+| `/vault logout` | Sign out on this device |
+| `/vault restart` | Restart the daemon, e.g. when it's an older version than the extension |
+
+When the daemon is locked, Pi asks for the passphrase once per Pi process (escape skips it). Passphrases are typed into a masked field and go straight to the daemon. Pi warns when the running daemon's version differs from the extension's.
 
 ### Installing from GitHub
 

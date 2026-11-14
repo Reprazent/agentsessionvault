@@ -41,6 +41,8 @@ export class Vault {
   private failures = 0;
   private stopped = true;
   view: View = { state: "connecting" };
+  /** Counts successful connections, so callers can wait for a reconnect. */
+  connections = 0;
 
   constructor(private readonly o: VaultOptions) {}
 
@@ -92,6 +94,7 @@ export class Vault {
       if (this.stopped) return c.close();
       this.client = c;
       this.failures = 0;
+      this.connections++;
       c.onClose(() => this.dropped(c!));
       this.set({ state: "connected", hello, status });
       this.schedulePoll();
@@ -142,9 +145,9 @@ export function describe(v: View): string {
   if (v.state === "unavailable") return `The vault daemon is unavailable: ${v.error}\nRetrying in ${Math.round(v.retryInMs / 1000)}s.`;
   const s = v.status;
   const lines = [`daemon ${v.hello.version}, pid ${v.hello.pid}`];
-  if (!s.signedIn) lines.push("Signed out. Run `asv login <email>` in a terminal.");
-  else if (!s.account) lines.push(`Signed in as ${s.email}, no account yet. Run \`asv setup\`.`);
-  else if (!s.unlocked) lines.push(`Signed in as ${s.email}, locked. Run \`asv unlock\`.`);
+  if (!s.signedIn) lines.push("Signed out. /vault login to start syncing.");
+  else if (!s.account) lines.push(`Signed in as ${s.email}, no account yet. /vault setup creates it.`);
+  else if (!s.unlocked) lines.push(`Signed in as ${s.email}, locked. /vault unlock`);
   else {
     lines.push(`Signed in as ${s.email}, unlocked on ${s.deviceName ?? "this device"}.`);
     const sync = s.sync;
