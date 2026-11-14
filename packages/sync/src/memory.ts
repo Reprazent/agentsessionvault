@@ -4,6 +4,8 @@ import { ConflictError, type NewSession, NotFoundError, type Remote, type Remote
 /** Shared server state for MemoryRemote. Mirrors the rules of commit_chunk. */
 export class MemoryServer {
   sessions = new Map<string, RemoteSession>();
+  /** Session id -> user id; like RLS, a user only sees their own. */
+  owners = new Map<string, string>();
   projects = new Map<string, RemoteProject>();
   chunks = new Map<string, RemoteChunk[]>();
   objects = new Map<string, Uint8Array>();
@@ -28,17 +30,22 @@ export class MemoryRemote implements Remote {
     readonly deviceId: string,
   ) {}
 
+  private mine(id: string): boolean {
+    return (this.server.owners.get(id) ?? this.userId) === this.userId;
+  }
+
   async getSession(id: string) {
     const s = this.server.sessions.get(id);
-    return s ? structuredClone(s) : null;
+    return s && this.mine(id) ? structuredClone(s) : null;
   }
 
   async listSessions() {
-    return [...this.server.sessions.values()].map((s) => structuredClone(s));
+    return [...this.server.sessions.values()].filter((s) => this.mine(s.id)).map((s) => structuredClone(s));
   }
 
   async createSession(row: NewSession) {
     if (this.server.sessions.has(row.id)) throw new ConflictError(`session ${row.id} exists`);
+    this.server.owners.set(row.id, this.userId);
     this.server.sessions.set(row.id, { ...row, project_id: null, head_seq: 0, updated_at: new Date().toISOString(), deleted_at: null });
     this.server.chunks.set(row.id, []);
   }

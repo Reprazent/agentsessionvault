@@ -16,7 +16,7 @@ import {
 } from "@agentsessionvault/crypto";
 import { type DeviceRow, NotSignedInError, RevokedDeviceError, VaultClient, jwtSessionId } from "@agentsessionvault/client";
 import type { AccountKeys } from "@agentsessionvault/crypto";
-import type { Remote } from "@agentsessionvault/sync";
+import { ForeignSessionError, type Remote } from "@agentsessionvault/sync";
 import type { Session } from "@supabase/supabase-js";
 import {
   ConflictError,
@@ -109,7 +109,7 @@ interface Unlocked {
 
 /** Retrying won't help these; unlocking again restarts the watcher. */
 export function stopsAutoPush(e: unknown): boolean {
-  return e instanceof NotSignedInError || e instanceof RevokedDeviceError;
+  return e instanceof NotSignedInError || e instanceof RevokedDeviceError || e instanceof ForeignSessionError;
 }
 
 export class VaultService {

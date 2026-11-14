@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   ConflictError,
+  ForeignSessionError,
   type Git,
   MemoryServer,
   NotFoundError,
@@ -31,12 +32,13 @@ function fakeGit(remotes: Record<string, string> = {}, tops: Record<string, stri
   return { remote: async (cwd) => remotes[cwd] ?? null, topLevel: async (cwd) => tops[cwd] ?? null };
 }
 
-async function device(name: string, o: { maxChunkBytes?: number; maxAttempts?: number; git?: Git } = {}) {
+async function device(name: string, o: { maxChunkBytes?: number; maxAttempts?: number; git?: Git; user?: string } = {}) {
   const root = await mkdtemp(join(tmpdir(), `asv-${name}-`));
-  const remote = server.remote(USER, `${name}-device`);
+  const user = o.user ?? USER;
+  const remote = server.remote(user, `${name}-device`);
   const engine = new SyncEngine({
     remote,
-    keys: await accountSubkeys(USER, accountKey, 1),
+    keys: await accountSubkeys(user, user === USER ? accountKey : generateKey(), 1),
     stateDir: join(root, "state"),
     sessionsDir: join(root, "sessions"),
     projects: new ProjectResolver("/home/me", o.git ?? fakeGit()),
@@ -69,6 +71,18 @@ describe("splitLines", () => {
 });
 
 describe("push", () => {
+  test("a session id another account already has fails clearly", async () => {
+    const a = await device("a");
+    const other = await device("other", { user: "b0000000-0000-4000-8000-000000000002" });
+    await writeFile(a.file, `${header}\n${entry("e1", null)}\n`);
+    await writeFile(other.file, `${header}\n${entry("e1", null)}\n`);
+    await a.engine.push(a.file);
+    const e = await other.engine.push(other.file).catch((x) => x);
+    expect(e).toBeInstanceOf(ForeignSessionError);
+    expect(e.message).toBe(`session ${SID} already belongs to another account`);
+    expect(await other.engine.sessions()).toEqual([]);
+  });
+
   test("creates the session and pushes complete lines only", async () => {
     const a = await device("a");
     await writeFile(a.file, `${header}\n${entry("e1", null, "Fix the build")}\n{"partial`);

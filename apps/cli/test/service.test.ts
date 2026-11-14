@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { type DeviceRow, NotSignedInError, RevokedDeviceError } from "@agentsessionvault/client";
 import type { AccountKeys } from "@agentsessionvault/crypto";
-import { ConflictError, MemoryServer } from "@agentsessionvault/sync";
+import { ConflictError, ForeignSessionError, MemoryServer } from "@agentsessionvault/sync";
 import type { Session } from "@supabase/supabase-js";
 import { appendFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
@@ -545,6 +545,7 @@ describe("auto-push", () => {
   test("signed out or revoked stops retrying, other errors don't", () => {
     expect(stopsAutoPush(new NotSignedInError())).toBe(true);
     expect(stopsAutoPush(new RevokedDeviceError())).toBe(true);
+    expect(stopsAutoPush(new ForeignSessionError("s1"))).toBe(true);
     expect(stopsAutoPush(new Error("fetch failed"))).toBe(false);
   });
 

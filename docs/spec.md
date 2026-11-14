@@ -364,3 +364,7 @@ Not planned in a milestone yet.
   - Re-check each `cwd`'s remote every few minutes instead of caching it forever.
   - When an identity changes from `path:…` to a remote, move all sessions of the old project, carry local maps over, and delete the old project row if it's empty.
   - Merge projects by hand (`projects merge <from> <into>`) when a repo moves between remotes, since guessing that two remotes are the same repo isn't safe.
+
+### Session ids are global
+
+`sessions.id` is the harness's session id and the table's primary key, so a session file can only belong to one account. A second account pushing the same file gets a `ForeignSessionError` and auto-push stops for that file. It also tells that account the id exists elsewhere. If that matters, key sessions by `(user_id, id)`.
