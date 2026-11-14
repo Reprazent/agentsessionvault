@@ -15,29 +15,29 @@ import { resolve } from "node:path";
 const USAGE = `agentsessionvault: end-to-end encrypted sync for agent sessions
 
 Usage:
-  agentsessionvault daemon [--idle-exit [--idle-seconds N]]
-                                            run the daemon in the foreground; with
-                                            --idle-exit, stop N s (30) after the last client
-  agentsessionvault login [email] [--paste] sign in via the emailed link (--paste: no local server)
-  agentsessionvault setup [--generate]      first device: create the account
-  agentsessionvault unlock [--recovery]     unlock this device
-  agentsessionvault passphrase [--recovery] [--generate]
-                                            set a new passphrase
-  agentsessionvault status
-  agentsessionvault push <session.jsonl>    push a Pi session file
-  agentsessionvault pull <session-id> [--out <path>]
-  agentsessionvault sessions [--json]
-  agentsessionvault projects [--json]
-  agentsessionvault map <project> [dir]     sessions of a project go to dir (default: here)
-  agentsessionvault devices [--json]
-  agentsessionvault devices revoke <device-id>
-  agentsessionvault logout
+  asv daemon [--idle-exit [--idle-seconds N]]
+                                    run the daemon in the foreground; with
+                                    --idle-exit, stop N s (30) after the last client
+  asv login [email] [--paste]       sign in via the emailed link (--paste: no local server)
+  asv setup [--generate]            first device: create the account
+  asv unlock [--recovery]           unlock this device
+  asv passphrase [--recovery] [--generate]
+                                    set a new passphrase
+  asv status
+  asv push <session.jsonl>          push a Pi session file
+  asv pull <session-id> [--out <path>]
+  asv sessions [--json]
+  asv projects [--json]
+  asv map <project> [dir]           sessions of a project go to dir (default: here)
+  asv devices [--json]
+  asv devices revoke <device-id>
+  asv logout
 
 Every command except daemon talks to a running daemon.
 `;
 
 /**
- * `agentsessionvault daemon`: runs in the foreground until stopped. With
+ * `asv daemon`: runs in the foreground until stopped. With
  * --idle-exit (how harness clients start it), it exits once no client has
  * been connected for --idle-seconds (default 30).
  */
@@ -95,8 +95,8 @@ async function withDaemon<T>(fn: (c: DaemonClient) => Promise<T>): Promise<T> {
 function printStatus(s: Status) {
   if (!s.signedIn) return out(s.pendingLogin ? `signed out (waiting for the code sent to ${s.pendingLogin})` : "signed out");
   out(`signed in as ${s.email}`);
-  if (!s.account) return out("no account yet: run `agentsessionvault setup`");
-  out(s.unlocked ? `unlocked, device ${s.deviceId} (${s.deviceName})` : "locked: run `agentsessionvault unlock`");
+  if (!s.account) return out("no account yet: run `asv setup`");
+  out(s.unlocked ? `unlocked, device ${s.deviceId} (${s.deviceName})` : "locked: run `asv unlock`");
   if (s.sync) {
     out(`auto-push: ${s.sync.watching ? "on" : "off"}, ${s.sync.pending} pending${s.sync.lastPush ? `, last ${s.sync.lastPush.at}` : ""}`);
     if (s.sync.lastError) out(`  last error ${s.sync.lastError.at}: ${s.sync.lastError.message}`);
@@ -195,8 +195,8 @@ export async function main(argv: string[]): Promise<number> {
     case "setup":
       return withDaemon(async (c) => {
         const st = await c.call<Status>("status");
-        if (!st.signedIn) throw new Error("not signed in; run `agentsessionvault login` first");
-        if (st.account) throw new Error("an account already exists; run `agentsessionvault unlock`");
+        if (!st.signedIn) throw new Error("not signed in; run `asv login` first");
+        if (st.account) throw new Error("an account already exists; run `asv unlock`");
         const params = values.generate ? { generate: true } : { passphrase: await newPassphrase() };
         err("Creating the account (this takes a second)...");
         const r = await c.call<{ recoveryKey: string; passphrase?: string }>("setup", params);
@@ -222,7 +222,7 @@ export async function main(argv: string[]): Promise<number> {
     case "passphrase":
       return withDaemon(async (c) => {
         const st = await c.call<Status>("status");
-        if (!st.unlocked) throw new Error("unlock first: `agentsessionvault unlock` (or `unlock --recovery` if you forgot it)");
+        if (!st.unlocked) throw new Error("unlock first: `asv unlock` (or `unlock --recovery` if you forgot it)");
         const proof = values.recovery
           ? { recoveryKey: await prompt("Recovery key: ", { hidden: true }) }
           : { current: await prompt("Current passphrase: ", { hidden: true }) };
@@ -239,7 +239,7 @@ export async function main(argv: string[]): Promise<number> {
 
     case "push": {
       const path = args[0];
-      if (!path) throw new TypeError("usage: agentsessionvault push <session.jsonl>");
+      if (!path) throw new TypeError("usage: asv push <session.jsonl>");
       return withDaemon(async (c) => {
         const r = await c.call<PushResult>("push", { path: (await import("node:path")).resolve(path) });
         const bytes = r.chunks.reduce((n, ch) => n + ch.size, 0);
@@ -255,7 +255,7 @@ export async function main(argv: string[]): Promise<number> {
 
     case "pull": {
       const id = args[0];
-      if (!id) throw new TypeError("usage: agentsessionvault pull <session-id> [--out <path>]");
+      if (!id) throw new TypeError("usage: asv pull <session-id> [--out <path>]");
       return withDaemon(async (c) => {
         const outPath = values.out ? (await import("node:path")).resolve(values.out) : undefined;
         const r = await c.call<PullResult>("pull", { sessionId: id, ...(outPath ? { path: outPath } : {}) });
@@ -292,7 +292,7 @@ export async function main(argv: string[]): Promise<number> {
 
     case "map": {
       const project = args[0];
-      if (!project) throw new TypeError("usage: agentsessionvault map <project> [dir]");
+      if (!project) throw new TypeError("usage: asv map <project> [dir]");
       const dir = resolve(args[1] ?? process.cwd());
       return withDaemon(async (c) => {
         const r = await c.call<{ project: ProjectSummary; moved: string[] }>("map", { project, dir });
@@ -305,7 +305,7 @@ export async function main(argv: string[]): Promise<number> {
     case "devices":
       if (args[0] === "revoke") {
         const id = args[1];
-        if (!id) throw new TypeError("usage: agentsessionvault devices revoke <device-id>");
+        if (!id) throw new TypeError("usage: asv devices revoke <device-id>");
         return withDaemon(async (c) => {
           const d = await c.call<DeviceInfo>("revokeDevice", { id });
           out(`revoked ${d.id} (${d.name ?? "unnamed"})${d.revoked_at ? ` at ${d.revoked_at}` : ""}`);

@@ -52,7 +52,7 @@ export class RemoteError extends Error {
 export class DaemonNotRunningError extends Error {
   override name = "DaemonNotRunningError";
   constructor(path: string) {
-    super(`the daemon isn't running (no socket at ${path}); start it with \`agentsessionvault daemon\``);
+    super(`the daemon isn't running (no socket at ${path}); start it with \`asv daemon\``);
   }
 }
 
@@ -151,7 +151,7 @@ export async function ping(path: string): Promise<boolean> {
 export interface StartOptions {
   socketPath: string;
   /**
-   * The daemon command, e.g. ["agentsessionvault", "daemon", "--idle-exit"].
+   * The daemon command, e.g. ["asv", "daemon", "--idle-exit"].
    * A function is only called when a daemon has to be started.
    */
   command: string[] | (() => Promise<string[]>);

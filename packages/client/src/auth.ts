@@ -44,14 +44,14 @@ export class FileAuthStorage implements SupportedStorage {
 export class RevokedDeviceError extends Error {
   override name = "RevokedDeviceError";
   constructor() {
-    super("this sign-in belongs to a revoked device; run `agentsessionvault login` again");
+    super("this sign-in belongs to a revoked device; run `asv login` again");
   }
 }
 
 export class NotSignedInError extends Error {
   override name = "NotSignedInError";
   constructor() {
-    super("not signed in; run `agentsessionvault login`");
+    super("not signed in; run `asv login`");
   }
 }
 

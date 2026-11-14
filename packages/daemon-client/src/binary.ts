@@ -10,12 +10,12 @@ import { delimiter, join } from "node:path";
 
 export const RELEASES_URL = "https://github.com/Reprazent/agentsessionvault/releases/download";
 
-/** The release asset name for a platform, e.g. agentsessionvault-darwin-arm64. */
+/** The release asset name for a platform, e.g. asv-darwin-arm64. */
 export function assetName(platform: string = process.platform, arch: string = process.arch): string {
   if ((platform !== "darwin" && platform !== "linux") || (arch !== "arm64" && arch !== "x64")) {
-    throw new Error(`no agentsessionvault binary for ${platform}-${arch}`);
+    throw new Error(`no asv binary for ${platform}-${arch}`);
   }
-  return `agentsessionvault-${platform}-${arch}`;
+  return `asv-${platform}-${arch}`;
 }
 
 export interface ResolveOptions {
@@ -23,7 +23,7 @@ export interface ResolveOptions {
   version: string;
   /** Where downloaded binaries live, one directory per version. */
   binDir: string;
-  /** A development build to prefer when it exists, e.g. apps/cli/dist/agentsessionvault in a checkout. */
+  /** A development build to prefer when it exists, e.g. apps/cli/dist/asv in a checkout. */
   devBuild?: string;
   env?: Record<string, string | undefined>;
   platform?: string;
@@ -36,19 +36,19 @@ export interface ResolveOptions {
 /**
  * The daemon binary to run, in order: AGENTSESSIONVAULT_BIN, a development
  * build, a downloaded binary for this version (downloading it now if
- * missing), or `agentsessionvault` on the PATH if the download fails.
+ * missing), or `asv` on the PATH if the download fails.
  */
 export async function resolveDaemonBinary(o: ResolveOptions): Promise<string> {
   const env = o.env ?? process.env;
   if (env.AGENTSESSIONVAULT_BIN) return env.AGENTSESSIONVAULT_BIN;
   if (o.devBuild && isExecutable(o.devBuild)) return o.devBuild;
-  const target = join(o.binDir, o.version, "agentsessionvault");
+  const target = join(o.binDir, o.version, "asv");
   if (isExecutable(target)) return target;
   try {
     await download({ ...o, target, baseUrl: env.AGENTSESSIONVAULT_RELEASES_URL || RELEASES_URL });
     return target;
   } catch (e) {
-    const onPath = findOnPath("agentsessionvault", env.PATH);
+    const onPath = findOnPath("asv", env.PATH);
     if (onPath) return onPath;
     throw e;
   }

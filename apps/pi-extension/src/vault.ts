@@ -142,9 +142,9 @@ export function describe(v: View): string {
   if (v.state === "unavailable") return `The vault daemon is unavailable: ${v.error}\nRetrying in ${Math.round(v.retryInMs / 1000)}s.`;
   const s = v.status;
   const lines = [`daemon ${v.hello.version}, pid ${v.hello.pid}`];
-  if (!s.signedIn) lines.push("Signed out. Run `agentsessionvault login <email>` in a terminal.");
-  else if (!s.account) lines.push(`Signed in as ${s.email}, no account yet. Run \`agentsessionvault setup\`.`);
-  else if (!s.unlocked) lines.push(`Signed in as ${s.email}, locked. Run \`agentsessionvault unlock\`.`);
+  if (!s.signedIn) lines.push("Signed out. Run `asv login <email>` in a terminal.");
+  else if (!s.account) lines.push(`Signed in as ${s.email}, no account yet. Run \`asv setup\`.`);
+  else if (!s.unlocked) lines.push(`Signed in as ${s.email}, locked. Run \`asv unlock\`.`);
   else {
     lines.push(`Signed in as ${s.email}, unlocked on ${s.deviceName ?? "this device"}.`);
     const sync = s.sync;

@@ -443,7 +443,7 @@ describe("unlockAtStart", () => {
     const logs: string[] = [];
     await unlockAtStart((await device()).svc, (m) => logs.push(m), io().io);
     await unlockAtStart((await signedIn()).svc, (m) => logs.push(m), io().io);
-    expect(logs).toEqual(["signed out; run `agentsessionvault login`", "signed in as me@example.com; no account yet, run `agentsessionvault setup`"]);
+    expect(logs).toEqual(["signed out; run `asv login`", "signed in as me@example.com; no account yet, run `asv setup`"]);
   });
 
   test("uses and deletes AGENTSESSIONVAULT_PASSPHRASE", async () => {
@@ -469,18 +469,18 @@ describe("unlockAtStart", () => {
     const b = await withAccount();
     const logs: string[] = [];
     await unlockAtStart(b.svc, (m) => logs.push(m), io().io);
-    expect(logs).toEqual(["locked; run `agentsessionvault unlock`"]);
+    expect(logs).toEqual(["locked; run `asv unlock`"]);
   });
 
   test("an empty answer, too many attempts, or a socket unlock end the prompt", async () => {
     const logs: string[] = [];
     const b = await withAccount();
     await unlockAtStart(b.svc, (m) => logs.push(m), io({ isTTY: true, answers: [""] }).io);
-    expect(logs.at(-1)).toBe("still locked; run `agentsessionvault unlock`");
+    expect(logs.at(-1)).toBe("still locked; run `asv unlock`");
 
     // The terminal went away.
     await unlockAtStart(b.svc, (m) => logs.push(m), io({ isTTY: true }).io);
-    expect(logs.at(-1)).toBe("still locked; run `agentsessionvault unlock`");
+    expect(logs.at(-1)).toBe("still locked; run `asv unlock`");
 
     const tooMany = io({ isTTY: true, answers: ["short", "short", "short", PASS] });
     await unlockAtStart(b.svc, (m) => logs.push(m), tooMany.io);

@@ -4,12 +4,12 @@
   "private": true,
   "type": "module",
   "bin": {
-    "agentsessionvault": "./src/main.ts"
+    "asv": "./src/main.ts"
   },
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc -p .",
-    "build": "bun build --compile --minify src/main.ts --outfile dist/agentsessionvault"
+    "build": "bun build --compile --minify src/main.ts --outfile dist/asv"
   },
   "dependencies": {
     "@agentsessionvault/adapter-pi": "workspace:*",

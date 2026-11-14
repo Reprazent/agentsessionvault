@@ -15,7 +15,7 @@ import { Vault, describe, statusLine } from "./vault.ts";
 const STATUS_KEY = "agentsessionvault";
 export const VERSION: string = pkg.version;
 /** `pnpm --filter @agentsessionvault/cli build` output, in a checkout. */
-const DEV_BUILD = join(dirname(fileURLToPath(import.meta.url)), "../../cli/dist/agentsessionvault");
+const DEV_BUILD = join(dirname(fileURLToPath(import.meta.url)), "../../cli/dist/asv");
 
 /**
  * The daemon command: AGENTSESSIONVAULT_BIN, a build in this checkout, or the

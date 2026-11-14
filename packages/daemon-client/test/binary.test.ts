@@ -23,9 +23,9 @@ const base = { version: "1.2.3", platform: "darwin", arch: "arm64", env: { AGENT
 
 describe("assetName", () => {
   test("supported and unsupported platforms", () => {
-    expect(assetName("linux", "x64")).toBe("agentsessionvault-linux-x64");
-    expect(assetName()).toStartWith("agentsessionvault-");
-    expect(() => assetName("win32", "x64")).toThrow("no agentsessionvault binary for win32-x64");
+    expect(assetName("linux", "x64")).toBe("asv-linux-x64");
+    expect(assetName()).toStartWith("asv-");
+    expect(() => assetName("win32", "x64")).toThrow("no asv binary for win32-x64");
     expect(() => assetName("linux", "ia32")).toThrow("linux-ia32");
   });
 });
@@ -34,16 +34,16 @@ describe("resolveDaemonBinary", () => {
   test("downloads, verifies and keeps the binary for this version", async () => {
     const binDir = await mkdtemp(join(tmpdir(), "asv-bin-"));
     const r = releases({
-      "/dl/v1.2.3/SHA256SUMS": `${sha(new Uint8Array([1]))}  agentsessionvault-linux-x64\n${sha(BIN).toUpperCase()} *agentsessionvault-darwin-arm64\n`,
-      "/dl/v1.2.3/agentsessionvault-darwin-arm64": BIN,
+      "/dl/v1.2.3/SHA256SUMS": `${sha(new Uint8Array([1]))}  asv-linux-x64\n${sha(BIN).toUpperCase()} *asv-darwin-arm64\n`,
+      "/dl/v1.2.3/asv-darwin-arm64": BIN,
     });
     const shown: string[] = [];
     const path = await resolveDaemonBinary({ ...base, binDir, fetch: r.fetch, onDownload: (u) => shown.push(u) });
-    expect(path).toBe(join(binDir, "1.2.3", "agentsessionvault"));
+    expect(path).toBe(join(binDir, "1.2.3", "asv"));
     expect(new Uint8Array(await readFile(path))).toEqual(BIN);
     expect((await stat(path)).mode & 0o777).toBe(0o700);
-    expect(shown).toEqual(["https://r.test/dl/v1.2.3/agentsessionvault-darwin-arm64"]);
-    expect(await readdir(join(binDir, "1.2.3"))).toEqual(["agentsessionvault"]);
+    expect(shown).toEqual(["https://r.test/dl/v1.2.3/asv-darwin-arm64"]);
+    expect(await readdir(join(binDir, "1.2.3"))).toEqual(["asv"]);
     // Second time: no network.
     expect(await resolveDaemonBinary({ ...base, binDir, fetch: r.fetch })).toBe(path);
     expect(r.fetched).toHaveLength(2);
@@ -63,18 +63,18 @@ describe("resolveDaemonBinary", () => {
 
   test("a bad checksum or a missing entry keeps nothing; PATH is the last resort", async () => {
     const binDir = await mkdtemp(join(tmpdir(), "asv-bin-"));
-    const bad = releases({ "/dl/v1.2.3/SHA256SUMS": `${"0".repeat(64)}  agentsessionvault-darwin-arm64\n`, "/dl/v1.2.3/agentsessionvault-darwin-arm64": BIN });
+    const bad = releases({ "/dl/v1.2.3/SHA256SUMS": `${"0".repeat(64)}  asv-darwin-arm64\n`, "/dl/v1.2.3/asv-darwin-arm64": BIN });
     await expect(resolveDaemonBinary({ ...base, binDir, fetch: bad.fetch, env: { ...base.env, PATH: "" } })).rejects.toThrow("checksum mismatch");
     expect(await readdir(binDir).catch(() => [])).toEqual([]);
-    const missing = releases({ "/dl/v1.2.3/SHA256SUMS": "abc  agentsessionvault-linux-x64\n" });
+    const missing = releases({ "/dl/v1.2.3/SHA256SUMS": "abc  asv-linux-x64\n" });
     await expect(resolveDaemonBinary({ ...base, binDir, fetch: missing.fetch, env: { ...base.env, PATH: "" } })).rejects.toThrow("isn't in");
 
     const pathDir = join(binDir, "path");
     await mkdir(pathDir);
-    await writeFile(join(pathDir, "agentsessionvault"), BIN, { mode: 0o755 });
-    expect(await resolveDaemonBinary({ ...base, binDir, fetch: bad.fetch, env: { ...base.env, PATH: `::${pathDir}` } })).toBe(join(pathDir, "agentsessionvault"));
+    await writeFile(join(pathDir, "asv"), BIN, { mode: 0o755 });
+    expect(await resolveDaemonBinary({ ...base, binDir, fetch: bad.fetch, env: { ...base.env, PATH: `::${pathDir}` } })).toBe(join(pathDir, "asv"));
     // Unsupported platform falls back too.
-    expect(await resolveDaemonBinary({ ...base, platform: "win32", binDir, fetch: bad.fetch, env: { ...base.env, PATH: pathDir } })).toBe(join(pathDir, "agentsessionvault"));
+    expect(await resolveDaemonBinary({ ...base, platform: "win32", binDir, fetch: bad.fetch, env: { ...base.env, PATH: pathDir } })).toBe(join(pathDir, "asv"));
   });
 
   test("the default release URL", async () => {

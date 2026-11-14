@@ -135,9 +135,9 @@ group("status text", () => {
   test("describe", () => {
     expect(describe({ state: "connecting" })).toContain("Connecting");
     expect(describe({ state: "unavailable", error: "boom", retryInMs: 4000 })).toBe("The vault daemon is unavailable: boom\nRetrying in 4s.");
-    expect(describe(at({ signedIn: false, unlocked: false }))).toBe("daemon 1, pid 42\nSigned out. Run `agentsessionvault login <email>` in a terminal.");
+    expect(describe(at({ signedIn: false, unlocked: false }))).toBe("daemon 1, pid 42\nSigned out. Run `asv login <email>` in a terminal.");
     expect(describe(at({ signedIn: true, email: "me@x", account: false, unlocked: false }))).toContain("no account yet");
-    expect(describe(at({ signedIn: true, email: "me@x", account: true, unlocked: false }))).toContain("locked. Run `agentsessionvault unlock`");
+    expect(describe(at({ signedIn: true, email: "me@x", account: true, unlocked: false }))).toContain("locked. Run `asv unlock`");
     expect(describe(at({ ...unlocked, deviceName: undefined, sync: undefined }))).toBe("daemon 1, pid 42\nSigned in as me@x, unlocked on this device.");
     expect(
       describe(at({ ...unlocked, sync: { watching: false, pending: 1, lastPush: { path: "/f", at: t1 }, lastError: { path: "/f", message: "offline", at: t2 } } })),

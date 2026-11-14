@@ -24,7 +24,7 @@ const FRAGMENT_SCRIPT = `<script>
 const h = location.hash.slice(1);
 if (h) fetch(location.pathname + "/fragment?" + h, { method: "POST" })
   .then((r) => r.text()).then((t) => { document.querySelector("h1").textContent = t; document.getElementById("msg").textContent = "You can close this tab."; });
-else document.getElementById("msg").textContent = "The link didn't include a sign-in. Try agentsessionvault login again.";
+else document.getElementById("msg").textContent = "The link didn't include a sign-in. Try asv login again.";
 </script>`;
 
 const escape = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -43,7 +43,7 @@ export function startCallbackServer(opts: { timeoutMs?: number | undefined; host
     res.writeHead(status, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
     res.end(
       err
-        ? page("Sign-in failed", `${escape(err)}. Run <code>agentsessionvault login</code> again.`)
+        ? page("Sign-in failed", `${escape(err)}. Run <code>asv login</code> again.`)
         : page("Signed in", "You can close this tab and go back to the terminal."),
     );
     done = true;

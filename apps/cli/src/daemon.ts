@@ -88,8 +88,8 @@ export interface StartupIo {
  */
 export async function unlockAtStart(svc: VaultService, log: (m: string) => void, io: StartupIo): Promise<void> {
   const st = await svc.status();
-  if (!st.signedIn) return log("signed out; run `agentsessionvault login`");
-  if (!st.account) return log(`signed in as ${st.email}; no account yet, run \`agentsessionvault setup\``);
+  if (!st.signedIn) return log("signed out; run `asv login`");
+  if (!st.account) return log(`signed in as ${st.email}; no account yet, run \`asv setup\``);
 
   const fromEnv = io.env.AGENTSESSIONVAULT_PASSPHRASE;
   delete io.env.AGENTSESSIONVAULT_PASSPHRASE;
@@ -101,7 +101,7 @@ export async function unlockAtStart(svc: VaultService, log: (m: string) => void,
       log(`AGENTSESSIONVAULT_PASSPHRASE didn't unlock: ${(e as Error).message}`);
     }
   }
-  if (!io.isTTY) return log("locked; run `agentsessionvault unlock`");
+  if (!io.isTTY) return log("locked; run `asv unlock`");
   for (let attempt = 1; attempt <= 3; attempt++) {
     const pass = await io.prompt(`Passphrase for ${st.email}: `).catch(() => "");
     if (!pass) break;
@@ -113,6 +113,6 @@ export async function unlockAtStart(svc: VaultService, log: (m: string) => void,
       log((e as Error).name === "DecryptionError" ? "wrong passphrase" : (e as Error).message);
     }
   }
-  log("still locked; run `agentsessionvault unlock`");
+  log("still locked; run `asv unlock`");
 }
 

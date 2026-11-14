@@ -61,20 +61,20 @@ No Docker needed.
 
 ## Pi extension
 
-`apps/pi-extension` connects Pi to the daemon. On session start it connects, or starts `agentsessionvault daemon --idle-exit` in the background, and keeps the connection open while Pi runs. The footer shows `vault: signed out`, `locked`, `synced`, `2 queued` or `push failed`. After each run it asks the daemon to push the session right away. `/vault` shows the details. Signing in, setup and unlocking still happen in the CLI.
+`apps/pi-extension` connects Pi to the daemon. On session start it connects, or starts `asv daemon --idle-exit` in the background, and keeps the connection open while Pi runs. The footer shows `vault: signed out`, `locked`, `synced`, `2 queued` or `push failed`. After each run it asks the daemon to push the session right away. `/vault` shows the details. Signing in, setup and unlocking still happen in the CLI.
 
 ### Installing from GitHub
 
     pi install git:github.com/Reprazent/agentsessionvault@v0.1.0
 
-The repo root is the Pi package. Pi clones it and runs `npm install`, which installs nothing (there are no runtime dependencies). On first start, the extension downloads the daemon for its own version from the GitHub release `v<version>` (`agentsessionvault-<os>-<arch>`, macOS and Linux, arm64 and x64), checks it against the release's `SHA256SUMS`, and keeps it in `~/.local/share/agentsessionvault/bin/<version>/`. The footer shows `vault: downloading daemon` meanwhile. If the download fails, it falls back to `agentsessionvault` on the `PATH`.
+The repo root is the Pi package. Pi clones it and runs `npm install`, which installs nothing (there are no runtime dependencies). On first start, the extension downloads the daemon for its own version from the GitHub release `v<version>` (`asv-<os>-<arch>`, macOS and Linux, arm64 and x64), checks it against the release's `SHA256SUMS`, and keeps it in `~/.local/share/agentsessionvault/bin/<version>/`. The footer shows `vault: downloading daemon` meanwhile. If the download fails, it falls back to `asv` on the `PATH`.
 
-That binary is also the CLI: `~/.local/share/agentsessionvault/bin/<version>/agentsessionvault login you@example.com`, and so on.
+That binary is also the CLI: `~/.local/share/agentsessionvault/bin/<version>/asv login you@example.com`, and so on.
 
 ### Installing from this checkout (development)
 
 1. `pnpm install` (see Setup). Pi doesn't install dependencies for a local package.
-2. Build the CLI binary. The extension prefers `apps/cli/dist/agentsessionvault` in its checkout over a download:
+2. Build the CLI binary. The extension prefers `apps/cli/dist/asv` in its checkout over a download:
 
        pnpm --filter @agentsessionvault/cli build
 
@@ -86,7 +86,7 @@ That binary is also the CLI: `~/.local/share/agentsessionvault/bin/<version>/age
 
 4. Start Pi. The footer shows `vault: …`. If a daemon you started by hand with `asv daemon` is already running, the extension uses that one. Otherwise its log is in `~/.local/share/agentsessionvault/daemon.log`. Sign in and unlock with the CLI as above, and the footer follows within a few seconds.
 
-`AGENTSESSIONVAULT_BIN` overrides which binary it starts. Rebuild after changing CLI or daemon code. A daemon that's still running keeps the old code: quit all Pi windows and wait 30 seconds, or stop it with `pkill -f 'agentsessionvault daemon'`. `/vault` shows the running daemon's version and pid.
+`AGENTSESSIONVAULT_BIN` overrides which binary it starts. Rebuild after changing CLI or daemon code. A daemon that's still running keeps the old code: quit all Pi windows and wait 30 seconds, or stop it with `pkill -f 'asv daemon'`. `/vault` shows the running daemon's version and pid.
 
 To keep a development setup apart from your real one, start Pi with `AGENTSESSIONVAULT_HOME` set (state, socket, log and downloaded binaries). The daemon inherits it. `AGENTSESSIONVAULT_PI_SESSIONS` changes which Pi sessions the daemon watches, not where Pi writes them.
 

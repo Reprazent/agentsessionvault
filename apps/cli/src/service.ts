@@ -45,14 +45,14 @@ export interface WatchOptions {
 export class LockedError extends Error {
   override name = "LockedError";
   constructor() {
-    super("locked; run `agentsessionvault unlock`");
+    super("locked; run `asv unlock`");
   }
 }
 
 export class NoAccountError extends Error {
   override name = "NoAccountError";
   constructor() {
-    super("no account yet; run `agentsessionvault setup`");
+    super("no account yet; run `asv setup`");
   }
 }
 
@@ -178,7 +178,7 @@ export class VaultService {
   /** Waits for the email link to hit the callback server, then completes the login. */
   async waitLogin(): Promise<Status> {
     const cb = this.callback;
-    if (!cb) throw new TypeError("no login is waiting for a link; run `agentsessionvault login`");
+    if (!cb) throw new TypeError("no login is waiting for a link; run `asv login`");
     const url = await cb.result;
     if (this.callback !== cb) throw new Error("login was restarted");
     return this.verify(url.toString());
@@ -187,7 +187,7 @@ export class VaultService {
   /** Completes login with the code or link from the email. */
   async verify(input: string, email?: string): Promise<Status> {
     const e = email ?? this.pendingEmail;
-    if (!e) throw new TypeError("run `agentsessionvault login` first");
+    if (!e) throw new TypeError("run `asv login` first");
     await this.client.verifyLogin(e, input);
     this.pendingEmail = undefined;
     this.callback?.close();
@@ -220,7 +220,7 @@ export class VaultService {
   /** First device: creates the account. Returns the recovery key, shown once. */
   async setup(opts: { passphrase?: string; generate?: boolean }): Promise<{ recoveryKey: string; passphrase?: string }> {
     const session = await this.client.requireSession();
-    if (await this.client.getAccount(session.user.id)) throw new ConflictError("an account already exists; use `agentsessionvault unlock`");
+    if (await this.client.getAccount(session.user.id)) throw new ConflictError("an account already exists; use `asv unlock`");
     const passphrase = opts.generate ? generatePassphrase() : opts.passphrase;
     if (!passphrase) throw new TypeError("a passphrase is required");
     const { row, accountKey, recoveryKey } = await createAccount(session.user.id, passphrase);
@@ -402,7 +402,7 @@ export class VaultService {
     if (matches.length === 0) throw new NotFoundError(`no device matches ${ref}`);
     if (matches.length > 1) throw new TypeError(`${ref} matches ${matches.length} devices; give more of the id`);
     const d = matches[0]!;
-    if (d.current) throw new TypeError("that's this device; use `agentsessionvault logout`, or revoke it from another device");
+    if (d.current) throw new TypeError("that's this device; use `asv logout`, or revoke it from another device");
     if (d.status === "revoked") return d;
     await this.client.revokeDevice(d.id);
     return (await this.devices()).find((x) => x.id === d.id)!;

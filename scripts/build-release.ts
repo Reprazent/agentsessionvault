@@ -1,6 +1,6 @@
 // Builds the daemon binaries a release carries, plus SHA256SUMS, into
 // dist/release/. The Pi extension downloads these by version:
-//   <releases>/v<version>/agentsessionvault-<os>-<arch>
+//   <releases>/v<version>/asv-<os>-<arch>
 // Usage: bun scripts/build-release.ts [--tag v1.2.3]  (checks the tag matches)
 
 import { createHash } from "node:crypto";
@@ -27,7 +27,7 @@ await rm(out, { recursive: true, force: true });
 await mkdir(out, { recursive: true });
 const sums: string[] = [];
 for (const [os, arch] of TARGETS) {
-  const name = `agentsessionvault-${os}-${arch}`;
+  const name = `asv-${os}-${arch}`;
   const file = join(out, name);
   const r = Bun.spawnSync(
     ["bun", "build", "--compile", "--minify", `--target=bun-${os}-${arch}`, "apps/cli/src/main.ts", "--outfile", file],
