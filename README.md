@@ -4,7 +4,7 @@ Syncs your coding agent sessions between machines, end-to-end encrypted. Session
 
 It works with [Pi](https://github.com/earendil-works/pi) for now. Claude Code and OpenCode are planned.
 
-This is a proof of concept. Sessions push automatically as you work, but pulling them onto another machine is still a command (`/vault pull`). Live pull is next.
+This is a proof of concept. While Pi is open on two machines, sessions from one show up in the other's `/resume` within a few seconds.
 
 ## Getting started
 
@@ -55,11 +55,13 @@ The footer shows `vault: signed out`, `locked`, `synced`, `2 queued` or `push fa
 
 ### Getting a session onto another machine
 
-Run `/vault pull` on the other machine, then `/resume`. Or pick one session with `/vault sessions`, which pulls it and offers to open it.
+Nothing to do: while the vault is unlocked, the daemon listens for new chunks from your other machines (Supabase Realtime) and pulls them within a second or two. `/resume` lists the session. When the daemon starts, it first pulls whatever it missed.
+
+`/vault pull` does the same by hand, and `/vault sessions` lets you pick one session to pull and open.
 
 A pulled session goes to this machine's checkout of the same project, matched by its git remote. If the vault can't find one, the session waits in `~/.pi/agent/sessions/_unmapped/`, where `/resume` doesn't list it. Open Pi in the checkout and run `/vault map` to move it there.
 
-Sessions that are open in a Pi window aren't pulled into, since Pi is writing to them. They pull once you close or switch away from them.
+Sessions that are open in a Pi window aren't pulled into, since Pi is writing to them. If one changed on another machine, the footer adds `newer elsewhere`, and it pulls once you close it or switch away. Continuing it on both machines at once works too: each machine's entries become a branch in the same session.
 
 ## The CLI
 
@@ -84,7 +86,7 @@ From a checkout, `bun apps/cli/src/main.ts` works too. All commands talk to a ru
 
 `login --paste` skips the local callback server. The callback listens on `127.0.0.1` with a random port and path, and sign-in uses PKCE, so the code in the redirect is only useful to this daemon. The email has no code to type, because the free tier doesn't allow custom templates with the default sender.
 
-While unlocked, the daemon watches `~/.pi/agent/sessions` and pushes a session 2 seconds after Pi last wrote to it. On unlocking, it first pushes whatever changed while it wasn't running. Failed pushes retry with backoff, and `asv status` shows what's queued and the last error.
+While unlocked, the daemon watches `~/.pi/agent/sessions` and pushes a session 2 seconds after Pi last wrote to it. On unlocking, it first pushes whatever changed while it wasn't running. Failed pushes retry with backoff, and `asv status` shows what's queued and the last error. It also pulls live, as described in Getting a session onto another machine.
 
 Pulled sessions go to this machine's checkout of the same project: a `map` you made, the original directory if it holds the same project here, or a directory with Pi sessions for the same git remote. Otherwise they wait in `~/.pi/agent/sessions/_unmapped/<project>/`, where Pi doesn't list them, until you `asv map` the project.
 

@@ -3,7 +3,7 @@
 // tests, so it's excluded from unit coverage in bunfig.toml.
 
 import { type AccountKeys, type ChunkKind, type Envelope } from "@agentsessionvault/crypto";
-import { ConflictError, type NewSession, NotFoundError, type Remote, type RemoteChunk, type RemoteProject, type RemoteSession } from "@agentsessionvault/sync";
+import { type ChunkEvent, type ChunkSubscription, ConflictError, type NewSession, NotFoundError, type Remote, type RemoteChunk, type RemoteProject, type RemoteSession } from "@agentsessionvault/sync";
 import { FunctionsHttpError, type Session, createClient } from "@supabase/supabase-js";
 import type { Database, Json } from "./database.types.ts";
 import { FileAuthStorage, NotSignedInError, RevokedDeviceError, jwtSessionId, parseLoginProof } from "./auth.ts";
@@ -304,5 +304,28 @@ export class SupabaseRemote implements Remote {
     const { data, error } = await this.db.storage.from(BUCKET).download(objectName);
     if (error) throw error;
     return new Uint8Array(await data.arrayBuffer());
+  }
+
+  /**
+   * Realtime inserts on `chunks`. RLS applies, so only an active device of
+   * this user hears them. The client rejoins after a dropped socket and
+   * reports SUBSCRIBED again, which is the caller's cue to catch up.
+   */
+  subscribeChunks(sub: ChunkSubscription): () => void {
+    const channel = this.db
+      .channel(`chunks-${this.userId}-${crypto.randomUUID()}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "chunks", filter: `user_id=eq.${this.userId}` },
+        (p) => {
+          const c = p.new as ChunkEvent;
+          sub.onInsert({ session_id: c.session_id, seq: c.seq, device_id: c.device_id });
+        },
+      )
+      .subscribe((status, err) => {
+        if (status === "SUBSCRIBED") sub.onState(true);
+        else sub.onState(false, err?.message ?? status.toLowerCase());
+      });
+    return () => void this.db.removeChannel(channel);
   }
 }

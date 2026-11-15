@@ -51,7 +51,10 @@ async function runDaemon(cfg: Config, idleExit: boolean, idleSeconds: number): P
     server = await serve(cfg.socketPath, handlers(svc, log), {
       log,
       version: VERSION,
-      onSessionsChange: (open) => log(`open sessions: ${open.length ? open.join(", ") : "none"}`),
+      onSessionsChange: (open) => {
+        log(`open sessions: ${open.length ? open.join(", ") : "none"}`);
+        svc.sessionsChanged();
+      },
       ...(idleExit ? { idleMs: idleSeconds * 1000, onIdle: () => void stop(`no clients for ${idleSeconds}s`) } : {}),
     });
   } catch (e) {
@@ -103,6 +106,11 @@ function printStatus(s: Status) {
   if (s.sync) {
     out(`auto-push: ${s.sync.watching ? "on" : "off"}, ${s.sync.pending} pending${s.sync.lastPush ? `, last ${s.sync.lastPush.at}` : ""}`);
     if (s.sync.lastError) out(`  last error ${s.sync.lastError.at}: ${s.sync.lastError.message}`);
+  }
+  if (s.live) {
+    out(`live pull: ${s.live.connected ? "connected" : "not connected"}${s.live.lastPull ? `, last ${s.live.lastPull.at}` : ""}`);
+    if (s.live.lastError) out(`  last error ${s.live.lastError.at}: ${s.live.lastError.message}`);
+    for (const p of s.live.remoteAhead) out(`  newer elsewhere, pulls when closed: ${p}`);
   }
   if (s.openSessions) out(`open in a harness: ${s.openSessions.length}`);
 }

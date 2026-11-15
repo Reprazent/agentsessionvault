@@ -30,6 +30,15 @@ export interface RemoteProject {
   meta_enc: Envelope;
 }
 
+/** What a chunk insert notification carries. */
+export type ChunkEvent = Pick<RemoteChunk, "session_id" | "seq" | "device_id">;
+
+export interface ChunkSubscription {
+  onInsert(c: ChunkEvent): void;
+  /** Connected means subscribed: inserts from now on arrive. Missed ones need a catch-up. */
+  onState(connected: boolean, error?: string): void;
+}
+
 export type NewSession = Pick<RemoteSession, "id" | "harness" | "session_key" | "account_key_version" | "meta_enc">;
 
 /** Someone else got there first: another commit at this seq, or the session already exists. */
@@ -62,4 +71,6 @@ export interface Remote {
   /** The commit point. Throws ConflictError unless seq is head_seq + 1. */
   commitChunk(sessionId: string, seq: number, objectName: string, kind: ChunkKind, size: number): Promise<void>;
   downloadChunk(objectName: string): Promise<Uint8Array>;
+  /** Notifies about chunks committed for this user's sessions. Returns the unsubscribe. */
+  subscribeChunks(sub: ChunkSubscription): () => void;
 }

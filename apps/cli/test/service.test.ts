@@ -91,7 +91,8 @@ class FakeBackend implements Backend {
     d.last_seen_at = new Date().toISOString();
   }
   remote(userId: string) {
-    return this.server.sync.remote(userId, "device");
+    const me = this.current && this.server.devices.find((d) => d.auth_session_id === this.sid());
+    return this.server.sync.remote(userId, me?.id ?? "device");
   }
 }
 
@@ -587,6 +588,48 @@ describe("auto-push", () => {
     expect(stopsAutoPush(new NotSignedInError())).toBe(true);
     expect(stopsAutoPush(new RevokedDeviceError())).toBe(true);
     expect(stopsAutoPush(new Error("fetch failed"))).toBe(false);
+  });
+
+  test("live pull: new chunks from another device land here; open sessions wait until closed", async () => {
+    const a = await signedIn({ log: () => {} });
+    await a.svc.setup({ passphrase: PASS });
+    const logs: string[] = [];
+    const b = await signedIn({ log: (m) => logs.push(m), liveDebounceMs: 0 });
+    await b.svc.unlock({ passphrase: PASS });
+    const until = async (f: () => boolean | Promise<boolean>) => {
+      for (let i = 0; i < 300 && !(await f()); i++) await new Promise((r) => setTimeout(r, 10));
+      expect(await f()).toBe(true);
+    };
+    await until(async () => (await b.svc.status()).live?.connected === true);
+
+    const file = join(a.root, "s.jsonl");
+    await writeFile(file, `{"type":"session","version":3,"id":"${sid}","timestamp":"2026-11-13T10:38:17.712Z","cwd":"/p"}\n${line("e1", null)}`);
+    await a.svc.push(file);
+    await until(async () => (await b.svc.sessions())[0]?.local?.pulledSeq === 1);
+    const here = (await b.svc.sessions())[0]!.local!.path;
+    expect(await readFile(here, "utf8")).toBe(await readFile(file, "utf8"));
+    expect((await b.svc.status()).live?.lastPull?.path).toBe(here);
+
+    // Open in a harness on b: not written to, reported instead.
+    b.svc.openSessions = () => [here];
+    b.svc.sessionsChanged();
+    await appendFile(file, line("e2", "e1"));
+    await a.svc.push(file);
+    await until(async () => (await b.svc.status()).live?.remoteAhead.includes(here) === true);
+    expect((await b.svc.sessions())[0]!.local!.pulledSeq).toBe(1);
+
+    // Closed: it pulls.
+    b.svc.openSessions = () => [];
+    b.svc.sessionsChanged();
+    await until(async () => (await b.svc.sessions())[0]?.local?.pulledSeq === 2);
+    expect((await b.svc.status()).live?.remoteAhead).toEqual([]);
+    expect(await readFile(here, "utf8")).toBe(await readFile(file, "utf8"));
+
+    await b.svc.close();
+    await a.svc.close();
+    expect((await b.svc.status()).live).toBeUndefined();
+    expect(server.sync.subscribers.size).toBe(0);
+    expect(logs.filter((l) => l.includes("failed"))).toEqual([]);
   });
 
   test("signing out stops it", async () => {

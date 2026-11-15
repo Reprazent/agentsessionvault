@@ -180,5 +180,17 @@ group("status text", () => {
     expect(
       describe(at({ ...unlocked, sync: { watching: false, pending: 1, lastPush: { path: "/f", at: t1 }, lastError: { path: "/f", message: "offline", at: t2 } } })),
     ).toBe(`daemon 1, pid 42\nSigned in as me@x, unlocked on mac.\nAuto-push off, 1 queued.\nLast push ${t1}.\nLast error ${t2}: offline`);
+    const live = { connected: true, remoteAhead: ["/s/a.jsonl"], lastPull: { sessionId: "a", path: "/s/a.jsonl", at: t1 }, lastError: { message: "x: offline", at: t2 } };
+    expect(describe(at({ ...unlocked, sync: undefined, live }))).toEndWith(
+      `Live pull connected. Last pull ${t1}.\nLast pull error ${t2}: x: offline\n1 open session(s) changed elsewhere; they pull once closed.`,
+    );
+    expect(describe(at({ ...unlocked, sync: undefined, live: { connected: false, remoteAhead: [] } }))).toEndWith("Live pull not connected.");
+  });
+
+  test("the footer says when the open session changed elsewhere", () => {
+    const v = at({ ...unlocked, sync: { watching: true, pending: 0 }, live: { connected: true, remoteAhead: ["/s/a.jsonl"] } });
+    expect(statusLine(v, "/s/a.jsonl")).toBe("vault: synced · newer elsewhere");
+    expect(statusLine(v, "/s/b.jsonl")).toBe("vault: synced");
+    expect(statusLine(v)).toBe("vault: synced");
   });
 });

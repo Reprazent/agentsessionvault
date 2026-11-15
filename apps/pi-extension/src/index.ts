@@ -191,7 +191,7 @@ export function extension(pi: ExtensionAPI, opts: { devBuild?: string } = {}): v
       session: () => ui?.sessionManager.getSessionFile(),
       onChange: (v) => {
         if (!ui?.hasUI) return;
-        ui.ui.setStatus(STATUS_KEY, statusLine(v));
+        ui.ui.setStatus(STATUS_KEY, statusLine(v, ui.sessionManager.getSessionFile()));
         if (v.state === "connected" && vault && vault.connections !== seen) {
           seen = vault.connections;
           onConnected(v, ui);

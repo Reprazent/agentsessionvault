@@ -19,6 +19,13 @@ export interface DaemonStatus {
     lastPush?: { path: string; at: string };
     lastError?: { path: string; message: string; at: string };
   } | undefined;
+  live?: {
+    connected: boolean;
+    /** Open session files with newer chunks from other devices. */
+    remoteAhead: string[];
+    lastPull?: { sessionId: string; path: string; at: string };
+    lastError?: { message: string; at: string };
+  } | undefined;
 }
 
 export type View =
@@ -133,7 +140,13 @@ export class Vault {
 }
 
 /** The footer text. */
-export function statusLine(v: View): string {
+export function statusLine(v: View, session?: string): string {
+  const line = baseLine(v);
+  const ahead = v.state === "connected" && session !== undefined && v.status.live?.remoteAhead.includes(session);
+  return ahead ? `${line} · newer elsewhere` : line;
+}
+
+function baseLine(v: View): string {
   if (v.state === "connecting") return "vault: connecting";
   if (v.state === "unavailable") return "vault: unavailable";
   const s = v.status;
@@ -163,6 +176,12 @@ export function describe(v: View): string {
       lines.push(`Auto-push ${sync.watching ? "on" : "off"}, ${sync.pending} queued.`);
       if (sync.lastPush) lines.push(`Last push ${sync.lastPush.at}.`);
       if (sync.lastError) lines.push(`Last error ${sync.lastError.at}: ${sync.lastError.message}`);
+    }
+    const live = s.live;
+    if (live) {
+      lines.push(`Live pull ${live.connected ? "connected" : "not connected"}.${live.lastPull ? ` Last pull ${live.lastPull.at}.` : ""}`);
+      if (live.lastError) lines.push(`Last pull error ${live.lastError.at}: ${live.lastError.message}`);
+      if (live.remoteAhead.length) lines.push(`${live.remoteAhead.length} open session(s) changed elsewhere; they pull once closed.`);
     }
   }
   return lines.join("\n");

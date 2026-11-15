@@ -1,5 +1,5 @@
 import type { ChunkKind, Envelope } from "@agentsessionvault/crypto";
-import { ConflictError, type NewSession, NotFoundError, type Remote, type RemoteChunk, type RemoteProject, type RemoteSession } from "./remote.ts";
+import { type ChunkSubscription, ConflictError, type NewSession, NotFoundError, type Remote, type RemoteChunk, type RemoteProject, type RemoteSession } from "./remote.ts";
 
 /** Shared server state for MemoryRemote. Mirrors the rules of commit_chunk. */
 export class MemoryServer {
@@ -9,6 +9,8 @@ export class MemoryServer {
   /** By `<user id>/<session id>`, like sessions. */
   chunks = new Map<string, RemoteChunk[]>();
   objects = new Map<string, Uint8Array>();
+  /** Realtime stand-in: subscribers by user id. */
+  subscribers = new Set<{ userId: string; sub: ChunkSubscription }>();
   private n = 0;
   /** Called before each commit; lets tests interleave another device. */
   beforeCommit?: undefined | ((sessionId: string, seq: number) => Promise<void> | void);
@@ -108,6 +110,16 @@ export class MemoryRemote implements Remote {
     this.server.chunks.get(this.key(sessionId))!.push({ session_id: sessionId, seq, object_name: objectName, kind, size, device_id: this.deviceId });
     s.head_seq = seq;
     s.updated_at = new Date().toISOString();
+    for (const x of this.server.subscribers) {
+      if (x.userId === this.userId) x.sub.onInsert({ session_id: sessionId, seq, device_id: this.deviceId });
+    }
+  }
+
+  subscribeChunks(sub: ChunkSubscription): () => void {
+    const entry = { userId: this.userId, sub };
+    this.server.subscribers.add(entry);
+    queueMicrotask(() => this.server.subscribers.has(entry) && sub.onState(true));
+    return () => void this.server.subscribers.delete(entry);
   }
 
   async downloadChunk(objectName: string) {

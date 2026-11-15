@@ -34,26 +34,24 @@ import { join, resolve } from "node:path";
 import { type CallbackServer, startCallbackServer } from "./callback.ts";
 import type { Config } from "./config.ts";
 import { type WatchStatus, Watcher } from "./watcher.ts";
+import { type LiveStatus, LivePuller } from "./live.ts";
+import { SessionOpenError } from "./errors.ts";
+
+export { SessionOpenError };
 
 /** Auto-push from Pi's sessions directory; the daemon turns it on. */
 export interface WatchOptions {
   log: (m: string) => void;
   debounceMs?: number;
   retryMs?: number;
+  /** Live pull's debounce per session. */
+  liveDebounceMs?: number;
 }
 
 export class LockedError extends Error {
   override name = "LockedError";
   constructor() {
     super("locked; run `asv unlock`");
-  }
-}
-
-/** Pulling into a file a harness has open would race its writes. */
-export class SessionOpenError extends Error {
-  constructor(readonly path: string) {
-    super(`that session is open in a harness; close it (or switch to another session) and pull again`);
-    this.name = "SessionOpenError";
   }
 }
 
@@ -83,6 +81,7 @@ export interface Status {
   pendingLogin?: string;
   /** Auto-push, while unlocked and watching. */
   sync?: WatchStatus;
+  live?: LiveStatus;
   /** Session files harness windows have open; left out when none. */
   openSessions?: string[];
 }
@@ -135,6 +134,7 @@ export class VaultService {
   private pendingEmail: string | undefined;
   private callback: CallbackServer | undefined;
   private watcher: Watcher | undefined;
+  private live: LivePuller | undefined;
   /** Set by the daemon to its server's list of open sessions. */
   openSessions: () => string[] = () => [];
 
@@ -168,6 +168,7 @@ export class VaultService {
       unlocked: !!this.unlocked,
       ...(this.unlocked ? { deviceId: this.unlocked.deviceId, deviceName: hostname() } : {}),
       ...(this.unlocked && this.watcher ? { sync: { ...this.watcher.status } } : {}),
+      ...(this.unlocked && this.live ? { live: this.live.status } : {}),
       ...opened,
     };
   }
@@ -223,6 +224,13 @@ export class VaultService {
     this.unlocked = undefined;
     this.watcher?.close();
     this.watcher = undefined;
+    this.live?.close();
+    this.live = undefined;
+  }
+
+  /** The daemon's open sessions changed: live pull catches up on closed ones. */
+  sessionsChanged(): void {
+    this.live?.sessionsChanged(this.openSessions());
   }
 
   /** Stops background work; for shutting down the daemon. */
@@ -343,6 +351,23 @@ export class VaultService {
     this.watcher = w;
     await mkdir(this.cfg.piSessionsDir, { recursive: true });
     await w.start();
+
+    this.live?.close();
+    const u = this.unlocked;
+    const remote = this.client.remote(u.userId);
+    this.live = new LivePuller({
+      target: {
+        subscribe: (sub) => remote.subscribeChunks(sub),
+        sessions: () => engine.sessions(),
+        pull: (id, guard) => engine.pull(id, { guard }),
+      },
+      deviceId: u.deviceId,
+      openSessions: () => this.openSessions(),
+      log: this.watch.log,
+      ...(this.watch.liveDebounceMs !== undefined ? { debounceMs: this.watch.liveDebounceMs } : {}),
+      isFatal: stopsAutoPush,
+    });
+    this.live.start();
   }
 
   /**
