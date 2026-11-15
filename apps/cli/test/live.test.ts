@@ -140,3 +140,11 @@ test("failed pulls retry; fatal ones and a failed catch-up don't", async () => {
   expect(t.live.status.lastError?.message).toBe("catch-up: offline");
   t.live.close();
 });
+
+test("idle waits for a pull that's still scheduled", async () => {
+  const t = setup();
+  t.sub().onInsert({ session_id: "a", seq: 1, device_id: "other" });
+  await t.live.idle(); // called before the debounce timer fired
+  expect(t.pulls).toEqual(["a"]);
+  t.live.close();
+});
