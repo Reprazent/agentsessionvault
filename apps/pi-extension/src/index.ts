@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import pkg from "../../../package.json" with { type: "json" };
 import { type Call, type Ui, login, logout, nextStep, setup, unlock } from "./flows.ts";
 import { type View, Vault, describe, statusLine } from "./vault.ts";
+import { devices, map, pull, revoke, sessions } from "./browse.ts";
 
 const STATUS_KEY = "agentsessionvault";
 export const VERSION: string = pkg.version;
@@ -55,6 +56,10 @@ const SUBCOMMANDS = [
   { value: "login", label: "login", description: "Sign in with an emailed link: /vault login [email]" },
   { value: "setup", label: "setup", description: "First device: create the vault" },
   { value: "unlock", label: "unlock", description: "Unlock this device (--recovery: with the recovery key)" },
+  { value: "sessions", label: "sessions", description: "Sessions in the vault; pick one to pull and open it" },
+  { value: "pull", label: "pull", description: "Pull everything new, or one session: /vault pull [id]" },
+  { value: "map", label: "map", description: "Put a project's sessions in this directory" },
+  { value: "devices", label: "devices", description: "Your devices (revoke: revoke one)" },
   { value: "logout", label: "logout", description: "Sign out on this device" },
   { value: "restart", label: "restart", description: "Restart the daemon, e.g. after an update" },
 ];
@@ -213,7 +218,7 @@ export function extension(pi: ExtensionAPI, opts: { devBuild?: string } = {}): v
   });
 
   pi.registerCommand("vault", {
-    description: "agentsessionvault: sync status, login, setup, unlock, logout, restart",
+    description: "agentsessionvault: status, sessions, pull, map, devices, login, setup, unlock, logout, restart",
     getArgumentCompletions: (prefix) => {
       const items = SUBCOMMANDS.filter((c) => c.value.startsWith(prefix.trim()));
       return items.length ? items : null;
@@ -232,6 +237,18 @@ export function extension(pi: ExtensionAPI, opts: { devBuild?: string } = {}): v
           return run(ctx, (u) => setup(call, u));
         case "unlock":
           return run(ctx, (u) => unlock(call, u, { recovery: rest.includes("--recovery") || rest.includes("recovery") }));
+        case "sessions":
+          return run(ctx, (u) =>
+            sessions(call, u, async (path) => {
+              await ctx.switchSession(path);
+            }),
+          );
+        case "pull":
+          return run(ctx, (u) => pull(call, u, rest[0]));
+        case "map":
+          return run(ctx, (u) => map(call, u, ctx.cwd));
+        case "devices":
+          return run(ctx, (u) => (rest[0] === "revoke" ? revoke(call, u) : devices(call, u)));
         case "logout":
           return run(ctx, (u) => logout(call, u));
         case "restart":

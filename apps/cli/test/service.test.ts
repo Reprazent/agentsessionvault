@@ -409,6 +409,44 @@ describe("sync through the service", () => {
     expect(await readFile(out, "utf8")).toBe(await readFile(file, "utf8"));
   });
 
+  test("pullAll pulls what's new, skips open and up-to-date sessions; pull takes a prefix and refuses open files", async () => {
+    const a = await signedIn();
+    await a.svc.setup({ passphrase: PASS });
+    const ids = ["01a1d47c-9870-7461-a887-70599c34d8ab", "01a1d47c-9870-7461-a887-70599c34d8ac"];
+    const files = ids.map((id) => join(a.root, `${id}.jsonl`));
+    for (const [i, id] of ids.entries()) {
+      await writeFile(files[i]!, `{"type":"session","version":3,"id":"${id}","timestamp":"2026-11-13T10:38:17.712Z","cwd":"/p"}\n`);
+      await a.svc.push(files[i]!);
+    }
+    // Pushing device has everything.
+    expect(await a.svc.pullAll()).toEqual({ pulled: [], open: [], failed: [] });
+
+    const b = await signedIn();
+    await b.svc.unlock({ passphrase: PASS });
+    const first = await b.svc.pullAll();
+    expect(first.pulled.map((r) => r.sessionId).sort()).toEqual(ids);
+    expect(await b.svc.pullAll()).toEqual({ pulled: [], open: [], failed: [] });
+
+    // Both move on; b has the first one open.
+    for (const f of files) await appendFile(f, `{"type":"message","id":"m1","parentId":null}\n`);
+    for (const f of files) await a.svc.push(f);
+    const openPath = first.pulled.find((r) => r.sessionId === ids[0])!.path;
+    b.svc.openSessions = () => [openPath];
+    const second = await b.svc.pullAll();
+    expect(second.pulled.map((r) => r.sessionId)).toEqual([ids[1]!]);
+    expect(second.open).toEqual([ids[0]!]);
+    await expect(b.svc.pull("01a1d47c")).rejects.toThrow("matches 2 sessions");
+    await expect(b.svc.pull("01a")).rejects.toThrow("at least 4");
+    await expect(b.svc.pull("ffff")).rejects.toThrow("no session matches");
+    await expect(b.svc.pull(ids[0]!.slice(0, -1).toUpperCase() + "b")).rejects.toThrow("open in a harness");
+
+    // Closed: it pulls now. A failing session doesn't stop the rest.
+    b.svc.openSessions = () => [];
+    for (const c of server.sync.chunks.get(`${USER}/${ids[0]}`)!) server.sync.objects.delete(c.object_name);
+    const third = await b.svc.pullAll();
+    expect(third.failed.map((f) => f.sessionId)).toEqual([ids[0]!]);
+  });
+
   test("device names that don't decrypt still list", async () => {
     const a = await signedIn();
     await a.svc.setup({ passphrase: PASS });

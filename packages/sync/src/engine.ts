@@ -314,8 +314,12 @@ export class SyncEngine {
     }
   }
 
-  /** Merge remote chunks into the local file. Without a known path, places it under Pi's sessions directory. */
-  async pull(sessionId: string, opts: { path?: string } = {}): Promise<PullResult> {
+  /**
+   * Merge remote chunks into the local file. Without a known path, places it
+   * under Pi's sessions directory. `guard` sees the target path first and may
+   * throw to refuse it (a session that's open in a harness).
+   */
+  async pull(sessionId: string, opts: { path?: string; guard?: (path: string) => void } = {}): Promise<PullResult> {
     return this.exclusive(sessionId, async () => {
       const session = await this.remote.getSession(sessionId);
       if (!session) throw new NotFoundError(`session ${sessionId} not found`);
@@ -329,6 +333,7 @@ export class SyncEngine {
         // A different file starts from scratch: everything gets merged into it.
         if (!st || st.path !== path) st = { sessionId, path, pushedOffset: 0, prefixHash: await sha256(new Uint8Array()), pulledSeq: 0 };
       }
+      opts.guard?.(st.path);
       const r = await this.pullInto(session, st, new Set());
       return { sessionId, path: r.state.path, chunks: r.chunks, appendedBytes: r.appendedBytes };
     });

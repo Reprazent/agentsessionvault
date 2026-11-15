@@ -8,7 +8,7 @@ import { handlers, unlockAtStart } from "./daemon.ts";
 import { prompt } from "./prompt.ts";
 import { AlreadyRunningError, DaemonClient, serve } from "./protocol.ts";
 import { VERSION } from "./version.ts";
-import { type DeviceInfo, type Status, VaultService } from "./service.ts";
+import { type DeviceInfo, type PullAllResult, type Status, VaultService } from "./service.ts";
 import type { ProjectSummary, PullResult, PushResult, SessionSummary } from "@agentsessionvault/sync";
 import { resolve } from "node:path";
 
@@ -25,7 +25,7 @@ Usage:
                                     set a new passphrase
   asv status
   asv push <session.jsonl>          push a Pi session file
-  asv pull <session-id> [--out <path>]
+  asv pull [<session-id> [--out <path>]]
   asv sessions [--json]
   asv projects [--json]
   asv map <project> [dir]           sessions of a project go to dir (default: here)
@@ -259,7 +259,17 @@ export async function main(argv: string[]): Promise<number> {
 
     case "pull": {
       const id = args[0];
-      if (!id) throw new TypeError("usage: asv pull <session-id> [--out <path>]");
+      if (!id) {
+        if (values.out) throw new TypeError("usage: asv pull [<session-id> [--out <path>]]");
+        return withDaemon(async (c) => {
+          const r = await c.call<PullAllResult>("pullAll");
+          for (const p of r.pulled) out(`${p.sessionId}: merged ${p.chunks} chunk(s)\n  ${p.path}`);
+          for (const id of r.open) out(`${id}: open in a harness, pull it after closing`);
+          for (const f of r.failed) err(`${f.sessionId}: ${f.error}\n`);
+          if (!r.pulled.length && !r.open.length && !r.failed.length) out("everything is up to date");
+          return r.failed.length ? 1 : 0;
+        });
+      }
       return withDaemon(async (c) => {
         const outPath = values.out ? (await import("node:path")).resolve(values.out) : undefined;
         const r = await c.call<PullResult>("pull", { sessionId: id, ...(outPath ? { path: outPath } : {}) });

@@ -11,6 +11,8 @@ export interface DaemonStatus {
   account?: boolean | undefined;
   unlocked: boolean;
   deviceName?: string | undefined;
+  /** Session files harness windows have open. */
+  openSessions?: string[] | undefined;
   sync?: {
     watching: boolean;
     pending: number;

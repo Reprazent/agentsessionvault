@@ -43,6 +43,11 @@ export function handlers(svc: VaultService, log: (m: string) => void): Record<st
       log(`pull ${r.sessionId}: ${r.chunks} chunk(s) -> ${r.path}`);
       return r;
     },
+    pullAll: async () => {
+      const r = await svc.pullAll();
+      if (r.pulled.length || r.failed.length) log(`pull all: ${r.pulled.length} pulled, ${r.open.length} open, ${r.failed.length} failed`);
+      return r;
+    },
     passphrase: async (p) => {
       const current = optStr(p, "current");
       const recoveryKey = optStr(p, "recoveryKey");

@@ -49,6 +49,21 @@ export class LockedError extends Error {
   }
 }
 
+/** Pulling into a file a harness has open would race its writes. */
+export class SessionOpenError extends Error {
+  constructor(readonly path: string) {
+    super(`that session is open in a harness; close it (or switch to another session) and pull again`);
+    this.name = "SessionOpenError";
+  }
+}
+
+export interface PullAllResult {
+  pulled: PullResult[];
+  /** Behind, but open in a harness: pulled once it's closed. */
+  open: string[];
+  failed: { sessionId: string; error: string }[];
+}
+
 export class NoAccountError extends Error {
   override name = "NoAccountError";
   constructor() {
@@ -355,8 +370,51 @@ export class VaultService {
     return (await this.requireUnlocked()).engine.push(resolve(path));
   }
 
-  async pull(sessionId: string, path?: string): Promise<PullResult> {
-    return (await this.requireUnlocked()).engine.pull(sessionId, path ? { path: resolve(path) } : {});
+  /** Pulls one session, by id or unique id prefix. Refuses a session a harness has open. */
+  async pull(ref: string, path?: string): Promise<PullResult> {
+    const u = await this.requireUnlocked();
+    const id = await this.sessionId(ref);
+    return u.engine.pull(id, { ...(path ? { path: resolve(path) } : {}), guard: (p) => this.refuseOpen(p) });
+  }
+
+  /**
+   * Pulls every session with chunks this device doesn't have yet: new ones
+   * from other devices, and ones that moved on. Skips deleted sessions and
+   * the ones a harness has open; a failure doesn't stop the rest.
+   */
+  async pullAll(): Promise<PullAllResult> {
+    const u = await this.requireUnlocked();
+    const open = new Set(this.openSessions());
+    const out: PullAllResult = { pulled: [], open: [], failed: [] };
+    for (const s of await u.engine.sessions()) {
+      if (s.deleted || (s.local && s.local.pulledSeq >= s.head_seq)) continue;
+      if (s.local && open.has(s.local.path)) {
+        out.open.push(s.id);
+        continue;
+      }
+      try {
+        out.pulled.push(await u.engine.pull(s.id, { guard: (p) => this.refuseOpen(p) }));
+      } catch (e) {
+        if (e instanceof SessionOpenError) out.open.push(s.id);
+        else out.failed.push({ sessionId: s.id, error: (e as Error).message });
+      }
+    }
+    return out;
+  }
+
+  private refuseOpen(path: string): void {
+    if (this.openSessions().includes(path)) throw new SessionOpenError(path);
+  }
+
+  /** A full session id from an id or a unique prefix of one. */
+  private async sessionId(ref: string): Promise<string> {
+    const r = ref.trim().toLowerCase();
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(r)) return r;
+    if (r.length < 4) throw new TypeError("give at least 4 characters of the session id");
+    const matches = (await (await this.requireUnlocked()).engine.sessions()).filter((s) => s.id.startsWith(r));
+    if (matches.length === 0) throw new NotFoundError(`no session matches ${ref}`);
+    if (matches.length > 1) throw new TypeError(`${ref} matches ${matches.length} sessions; give more of the id`);
+    return matches[0]!.id;
   }
 
   async sessions(): Promise<SessionSummary[]> {

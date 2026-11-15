@@ -49,6 +49,9 @@ function fakePi(opts?: Parameters<typeof extension>[1], answers: unknown[] = [],
       custom: (_f: unknown) => answer("custom"),
     },
     sessionManager: { getSessionFile: () => file },
+    cwd: "/w/app",
+    switched: [] as string[],
+    switchSession: async (f: string) => (ctx.switched.push(f), { cancelled: false }),
   };
   const commandOpts = new Map<string, any>();
   const pi = {
@@ -290,6 +293,42 @@ test("/vault subcommands run the flows against the daemon", async () => {
 
   expect(pi.complete("lo").map((c: { value: string }) => c.value)).toEqual(["login", "logout"]);
   expect(pi.complete("zz")).toBeNull();
+  await pi.emit("session_shutdown");
+});
+
+test("/vault sessions, pull, map and devices", async () => {
+  const session = { id: "aaaaaaaa-1", title: "t", head_seq: 1, updated_at: new Date().toISOString(), deleted: false };
+  const device = { id: "22222222-b", status: "active", current: false, last_seen_at: null, revoked_at: null };
+  await daemonAt({
+    status: async () => ({ signedIn: true, email: "me@x.io", account: true, unlocked: true }),
+    sessions: async () => [session],
+    pull: async (p) => ({ sessionId: p.sessionId, path: "/s/a.jsonl", chunks: 1 }),
+    pullAll: async () => ({ pulled: [], open: [], failed: [] }),
+    projects: async () => [{ id: "pppppppp-1", name: "app", sessions: 1 }],
+    map: async () => ({ moved: [] }),
+    devices: async () => [device],
+    revokeDevice: async () => device,
+  });
+  const answers: unknown[] = [];
+  const pi = fakePi(undefined, answers);
+  await pi.emit("session_start");
+  await until(() => pi.statuses.at(-1) === "vault: unlocked");
+
+  answers.push(`t · no project · 0m ago · not here · aaaaaaaa`, true);
+  await pi.command("vault", "sessions");
+  expect(pi.ctx.switched).toEqual(["/s/a.jsonl"]);
+  await pi.command("vault", "pull");
+  expect(pi.notes.at(-1)![0]).toBe("Everything is up to date.");
+  await pi.command("vault", "pull aaaa");
+  expect(pi.notes.at(-1)![0]).toContain("Pulled 1 chunk(s)");
+  answers.push("app · 1 session(s) · not on this machine", true);
+  await pi.command("vault", "map");
+  expect(pi.notes.at(-1)![0]).toBe("Mapped app to /w/app.");
+  await pi.command("vault", "devices");
+  expect(pi.notes.at(-1)![0]).toContain("22222222");
+  answers.push("(unnamed) · active · 22222222", true);
+  await pi.command("vault", "devices revoke");
+  expect(pi.notes.at(-1)![0]).toBe("Revoked 22222222.");
   await pi.emit("session_shutdown");
 });
 

@@ -4,7 +4,7 @@ Syncs your coding agent sessions between machines, end-to-end encrypted. Session
 
 It works with [Pi](https://github.com/earendil-works/pi) for now. Claude Code and OpenCode are planned.
 
-This is a proof of concept. Sessions push automatically as you work, but pulling a session onto another machine is still a manual `asv pull`. Live pull is next.
+This is a proof of concept. Sessions push automatically as you work, but pulling them onto another machine is still a command (`/vault pull`). Live pull is next.
 
 ## Getting started
 
@@ -42,6 +42,10 @@ The vault runs a small background daemon that holds your keys. Pi starts it and 
 | `/vault login [email]` | Sign in, then continue with setup or unlock |
 | `/vault setup` | Create the vault on your first machine |
 | `/vault unlock [--recovery]` | Unlock with the passphrase, or with the recovery key |
+| `/vault sessions` | The sessions in your vault; pick one to pull it and open it |
+| `/vault pull [id]` | Pull everything new from your other machines, or one session |
+| `/vault map` | Put a project's sessions in the current directory |
+| `/vault devices` | Your machines; `/vault devices revoke` removes one's access |
 | `/vault logout` | Sign out on this machine |
 | `/vault restart` | Restart the daemon, e.g. when Pi warns it's older than the extension |
 
@@ -49,7 +53,11 @@ The footer shows `vault: signed out`, `locked`, `synced`, `2 queued` or `push fa
 
 ### Getting a session onto another machine
 
-For now that takes the CLI (see below): `asv sessions` lists what's in the vault, `asv pull <session-id>` writes it into Pi's session directory, and `/resume` in Pi picks it up. Don't pull into a session that's open in Pi.
+Run `/vault pull` on the other machine, then `/resume`. Or pick one session with `/vault sessions`, which pulls it and offers to open it.
+
+A pulled session goes to this machine's checkout of the same project, matched by its git remote. If the vault can't find one, the session waits in `~/.pi/agent/sessions/_unmapped/`, where `/resume` doesn't list it. Open Pi in the checkout and run `/vault map` to move it there.
+
+Sessions that are open in a Pi window aren't pulled into, since Pi is writing to them. They pull once you close or switch away from them.
 
 ## The CLI
 
@@ -66,7 +74,7 @@ From a checkout, `bun apps/cli/src/main.ts` works too. All commands talk to a ru
     asv status
     asv push <session file>      # by hand; the daemon also does this on its own
     asv sessions
-    asv pull <session-id>        # into ~/.pi/agent/sessions, or --out <path>
+    asv pull [<session-id>]      # everything new, or one (an id prefix is enough; --out <path>)
     asv projects                 # one per git remote, else per path under $HOME
     asv map <project> [dir]      # put a project's sessions in dir (default: here)
     asv devices

@@ -271,7 +271,7 @@ Pull, triggered by Realtime inserts on `chunks` for my sessions, on startup, and
 2. For Pi, every line is an entry with an `id` and `parentId`. Append the entries whose `id` isn't known locally. Because the format is a tree, two devices continuing the same session just produce two branches, which Pi already knows how to show.
 3. A `snapshot` replaces the merged view: rebuild from the snapshot plus the later appends, and keep any local entries not in it.
 
-A session a harness window has open (see `open` above) isn't written to while it's open: the harness owns the file and appends to it. The daemon marks it as remote ahead instead and pulls once it's closed, or on `/vault pull`.
+A session a harness window has open (see `open` above) isn't written to while it's open: the harness owns the file and appends to it. The daemon marks it as remote ahead instead and pulls once it's closed. `pull` itself refuses a session that's open, and `pullAll` (what `/vault pull` and a bare `asv pull` call) skips those and reports them.
 
 Local file placement (since milestone 3; in Pi's `--<cwd>--/<timestamp>_<id>.jsonl` layout, or an explicit `--out`): a pulled session is written under the local directory that matches its project. Matching goes by `project_tag` (git remote first, path relative to `$HOME` as the fallback). If no local checkout matches, the session goes to an `_unmapped/` folder and `/vault map` fixes it later. Paths inside entries are left alone in v1. Rewriting tool arguments is how you corrupt a transcript.
 
