@@ -12,9 +12,9 @@ You need Pi on macOS or Linux (arm64 or x64). Sign-in works by email link, and f
 
 ### 1. Install the extension
 
-    pi install git:github.com/Reprazent/agentsessionvault@v0.2.0
+    pi install git:github.com/Reprazent/agentsessionvault@v<version>
 
-Use the newest tag from the [releases page](https://github.com/Reprazent/agentsessionvault/releases). To upgrade later, run the same command with the new tag.
+Replace `v<version>` with the newest tag from the [releases page](https://github.com/Reprazent/agentsessionvault/releases). To upgrade later, run the same command with the new tag.
 
 Start Pi. The first time, the extension downloads the matching `asv` binary from that release and checks it against the release's `SHA256SUMS`. The footer says `vault: downloading daemon` meanwhile, then `vault: signed out`.
 
@@ -53,11 +53,11 @@ For now that takes the CLI (see below): `asv sessions` lists what's in the vault
 
 ## The CLI
 
-The extension's download is also the CLI. It isn't on your `PATH` yet, so either alias it:
+The extension's download is also the CLI. It isn't on your `PATH` yet, so alias it, with `<version>` the installed release without the `v`:
 
-    alias asv=~/.local/share/agentsessionvault/bin/0.2.0/asv
+    alias asv=~/.local/share/agentsessionvault/bin/<version>/asv
 
-or, from a checkout, run `bun apps/cli/src/main.ts`. All commands talk to a running daemon. They don't start one, so keep Pi open or run `asv daemon` in another terminal. A daemon started that way stays up until you stop it, and asks for the passphrase on start (or reads `AGENTSESSIONVAULT_PASSPHRASE`).
+From a checkout, `bun apps/cli/src/main.ts` works too. All commands talk to a running daemon. They don't start one, so keep Pi open or run `asv daemon` in another terminal. A daemon started that way stays up until you stop it, and asks for the passphrase on start (or reads `AGENTSESSIONVAULT_PASSPHRASE`).
 
     asv login you@example.com    # click the link in the email, or paste it
     asv setup                    # first machine: passphrase, prints the recovery key
@@ -135,6 +135,8 @@ For a release, it sets the version in the root `package.json`, builds the four b
 | `pnpm test:e2e` | Two and three simulated devices against the hosted project: setup, unlock, push, pull, branches, revocation. |
 | `pnpm gen:types` | Regenerates `packages/client/src/database.types.ts` from the hosted schema. |
 
+The hosted commands run against the production project for now, since it's the only one. The plan is to run them on [Supabase branches](https://supabase.com/docs/guides/deployment/branching) instead: each pull request gets its own preview database with the migrations applied, and CI runs `test:db` and `test:e2e` there before anything reaches production. Branching needs a paid plan, which the project isn't on yet.
+
 Run a single package or file with bun directly:
 
     bun test packages/crypto
@@ -170,7 +172,7 @@ Then:
 
 `supabase test db --remote` still runs `pg_prove` in Docker, so `scripts/db-test-remote.ts` sends each test file through `supabase db query --remote` instead. That returns a single result set, so the script swaps `finish()` for a read of pgTAP's counters. It reports passed, run and planned counts per file, but not which test failed. Use `pnpm test:db:local` or the SQL editor for that. Test files must end with `select * from finish(); rollback;`.
 
-The tests run in a transaction and roll back, but they still run against that database. The only hosted project right now is production, so keep that in mind.
+The tests run in a transaction and roll back, but they still run against that database, which is production until tests move to Supabase branches (see Testing).
 
 `supabase db advisors --remote` should report only one warning: `commit_chunk` is a `security definer` function that signed-in users can call. That's on purpose. It's the only way to append chunks, and it checks the caller itself.
 
