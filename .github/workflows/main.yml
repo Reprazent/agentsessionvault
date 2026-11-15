@@ -8,7 +8,8 @@
 #      BREAKING CHANGE: major), it sets the version in package.json,
 #      builds the binaries with it, commits package.json, tags that
 #      commit v<version> and publishes a GitHub release with the binaries
-#      and SHA256SUMS. An extension installed at that tag downloads
+#      and SHA256SUMS. It also publishes the bundled package in dist/npm
+#      to npm with trusted publishing (OIDC, no token). An extension installed at that tag downloads
 #      exactly those binaries.
 # Production changes before the release, so a new client never meets an
 # old schema. Migrations have to keep working for the previous release.
@@ -75,12 +76,16 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      id-token: write # npm trusted publishing and provenance
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: jdx/mise-action@v5
       - run: pnpm install --frozen-lockfile
+      # @semantic-release/npm checks dist/npm/package.json before the
+      # release; prepare rebuilds it with the new version.
+      - run: bun scripts/build-npm.ts
       - run: pnpm exec semantic-release
         env:
           GITHUB_TOKEN: ${{ github.token }}

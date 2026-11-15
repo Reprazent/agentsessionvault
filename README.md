@@ -12,9 +12,11 @@ You need Pi on macOS or Linux (arm64 or x64). Sign-in works by email link, and f
 
 ### 1. Install the extension
 
-    pi install git:github.com/Reprazent/agentsessionvault@v<version>
+    pi install npm:agentsessionvault
 
-Replace `v<version>` with the newest tag from the [releases page](https://github.com/Reprazent/agentsessionvault/releases). To upgrade later, run the same command with the new tag.
+To upgrade later, run `pi update --extensions`. Pi shows what changed on the next start. Don't pin a version (`@1.2.3`) unless you want to stay on it.
+
+You can also install a tag from git: `pi install git:github.com/Reprazent/agentsessionvault@v<version>`, with the newest tag from the [releases page](https://github.com/Reprazent/agentsessionvault/releases).
 
 Start Pi. The first time, the extension downloads the matching `asv` binary from that release and checks it against the release's `SHA256SUMS`. The footer says `vault: downloading daemon` meanwhile, then `vault: signed out`.
 
@@ -120,15 +122,19 @@ To try a second device on one machine, give it its own state directory:
 
 The built-in email sender allows a few emails an hour, which testing uses up quickly. With a daemon running, `pnpm dev:login you@example.com` signs it in without an email. It creates the link with the admin API (using the secret key from the logged-in Supabase CLI), creates the user if needed and completes the redirect to the daemon's callback. It respects `AGENTSESSIONVAULT_HOME` and `AGENTSESSIONVAULT_SOCKET`. It doesn't exercise the PKCE email path.
 
-### How the GitHub install works
+### How the install works
 
-The repo root is the Pi package. Pi clones it at the tag and runs `npm install`, which installs nothing because there are no runtime dependencies. The extension, the CLI and the daemon share one version, from the root `package.json`. On first start the extension downloads `asv-<os>-<arch>` for its version from the GitHub release `v<version>`, verifies it against `SHA256SUMS` and keeps it in `~/.local/share/agentsessionvault/bin/<version>/`. If that fails, it falls back to `asv` on the `PATH`. `AGENTSESSIONVAULT_RELEASES_URL` points it at another server for testing.
+The npm package is built by `bun scripts/build-npm.ts` into `dist/npm/`: the Pi extension bundled into one `pi.js`, with the Pi packages it imports left as peer dependencies that Pi provides. It's meant to carry entry points for other agents too, under `exports`, next to the `pi` key.
+
+For a git install, the repo root is the Pi package. Pi clones it at the tag and runs `npm install`, which installs nothing because there are no runtime dependencies. The extension, the CLI and the daemon share one version, from the root `package.json`. On first start the extension downloads `asv-<os>-<arch>` for its version from the GitHub release `v<version>`, verifies it against `SHA256SUMS` and keeps it in `~/.local/share/agentsessionvault/bin/<version>/`. If that fails, it falls back to `asv` on the `PATH`. `AGENTSESSIONVAULT_RELEASES_URL` points it at another server for testing.
 
 ### Releasing
 
 Releases are automatic. On every push to `main`, `.github/workflows/main.yml` tests, deploys to production (see Deploying) and then runs [semantic-release](https://semantic-release.gitbook.io/). It reads the conventional commits since the last tag: `fix:` makes a patch release, `feat:` a minor one, and `BREAKING CHANGE:` (or `feat!:`) a major one. Other types (`docs:`, `refactor:`, `chore:`) don't release.
 
-For a release, it sets the version in the root `package.json`, builds the four binaries and `SHA256SUMS` with `bun scripts/build-release.ts`, commits `package.json` as `chore(release): v<version> [skip ci]`, tags that commit and publishes the GitHub release with notes and binaries. An extension installed at that tag downloads exactly those binaries. Config: `.releaserc.json`.
+For a release, it sets the version in the root `package.json`, builds the four binaries and `SHA256SUMS` with `bun scripts/build-release.ts`, updates `CHANGELOG.md`, builds the npm package, publishes it to npm, commits `package.json` and `CHANGELOG.md` as `chore(release): v<version> [skip ci]`, tags that commit and publishes the GitHub release with notes and binaries. An extension of that version downloads exactly those binaries. Config: `.releaserc.json`.
+
+npm publishing uses [trusted publishing](https://docs.npmjs.com/trusted-publishers): the `release` job's OIDC token (`id-token: write`) authenticates to npm, so there is no npm token secret, and npm adds provenance. On npmjs.com the package trusts the `Reprazent/agentsessionvault` repo and the `main.yml` workflow.
 
 `bun scripts/build-release.ts` checks a build locally. `pnpm release:dry` shows what the next release would be (needs `GITHUB_TOKEN`).
 
