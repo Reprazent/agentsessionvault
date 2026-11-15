@@ -68,6 +68,8 @@ export interface Status {
   pendingLogin?: string;
   /** Auto-push, while unlocked and watching. */
   sync?: WatchStatus;
+  /** Session files harness windows have open; left out when none. */
+  openSessions?: string[];
 }
 
 export interface DeviceInfo {
@@ -118,6 +120,8 @@ export class VaultService {
   private pendingEmail: string | undefined;
   private callback: CallbackServer | undefined;
   private watcher: Watcher | undefined;
+  /** Set by the daemon to its server's list of open sessions. */
+  openSessions: () => string[] = () => [];
 
   constructor(
     private readonly cfg: Config,
@@ -135,7 +139,9 @@ export class VaultService {
 
   async status(): Promise<Status> {
     const session = await this.client.session();
-    if (!session) return { signedIn: false, unlocked: false, ...(this.pendingEmail ? { pendingLogin: this.pendingEmail } : {}) };
+    const open = this.openSessions();
+    const opened = open.length ? { openSessions: open } : {};
+    if (!session) return { signedIn: false, unlocked: false, ...(this.pendingEmail ? { pendingLogin: this.pendingEmail } : {}), ...opened };
     const u = this.unlocked;
     // A refreshed token for another sign-in invalidates what we unlocked.
     if (u && (u.userId !== session.user.id || u.authSessionId !== jwtSessionId(session.access_token))) this.lock();
@@ -147,6 +153,7 @@ export class VaultService {
       unlocked: !!this.unlocked,
       ...(this.unlocked ? { deviceId: this.unlocked.deviceId, deviceName: hostname() } : {}),
       ...(this.unlocked && this.watcher ? { sync: { ...this.watcher.status } } : {}),
+      ...opened,
     };
   }
 

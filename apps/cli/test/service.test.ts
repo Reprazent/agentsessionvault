@@ -123,6 +123,9 @@ describe("login", () => {
     expect(server.sentTo).toEqual(["me@example.com"]);
     expect(server.redirects).toEqual([undefined]);
     expect(await svc.status()).toEqual({ signedIn: false, unlocked: false, pendingLogin: "me@example.com" });
+    svc.openSessions = () => ["/s/a.jsonl"];
+    expect(await svc.status()).toMatchObject({ openSessions: ["/s/a.jsonl"] });
+    svc.openSessions = () => [];
     await expect(svc.verify("000000")).rejects.toThrow("invalid");
     const st = await svc.verify("123456");
     expect(st).toMatchObject({ signedIn: true, email: "me@example.com", userId: USER, account: false, unlocked: false });

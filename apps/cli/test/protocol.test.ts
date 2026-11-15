@@ -13,6 +13,15 @@ afterEach(async () => {
   for (const s of servers.splice(0)) await s.close();
 });
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+async function until(cond: () => boolean, ms = 2000) {
+  const end = Date.now() + ms;
+  while (!cond()) {
+    if (Date.now() > end) throw new Error("timed out");
+    await sleep(5);
+  }
+}
+
 async function sockPath() {
   return join(await mkdtemp(join(tmpdir(), "asv-sock-")), "sub", "d.sock");
 }
@@ -133,7 +142,6 @@ describe("socket protocol", () => {
 });
 
 describe("lifetime", () => {
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   test("hello returns version and pid, and names the client", async () => {
     const path = await sockPath();
@@ -145,6 +153,34 @@ describe("lifetime", () => {
     expect(s.clientNames()).toEqual(["pi"]);
     c.close();
     anon.close();
+  });
+
+  test("tracks the session each connection has open", async () => {
+    const path = await sockPath();
+    const changes: string[][] = [];
+    const s = await start(path, {}, { onSessionsChange: (open) => changes.push(open) });
+    const a = await DaemonClient.connect(path);
+    const b = await DaemonClient.connect(path);
+    const c = await DaemonClient.connect(path);
+    expect(await a.call("open", { path: "/s/a.jsonl" })).toBeNull();
+    await b.call("open", { path: "/s/x/../b.jsonl" });
+    await c.call("open", { path: "/s/a.jsonl" }); // two windows, one session
+    expect(s.openSessions()).toEqual(["/s/a.jsonl", "/s/b.jsonl"]);
+    // The same path again changes nothing; null closes it.
+    await b.call("open", { path: "/s/b.jsonl" });
+    await b.call("open", { path: null });
+    expect(s.openSessions()).toEqual(["/s/a.jsonl"]);
+    await expect(b.call("open", { path: 3 })).rejects.toThrow("path must be a string");
+    await expect(b.call("open", { path: "" })).rejects.toThrow("path must be a string");
+    // A dropped connection closes its session; one still open elsewhere stays.
+    a.close();
+    await until(() => s.clients() === 2);
+    expect(s.openSessions()).toEqual(["/s/a.jsonl"]);
+    c.close();
+    b.close();
+    await until(() => s.clients() === 0);
+    expect(s.openSessions()).toEqual([]);
+    expect(changes).toEqual([["/s/a.jsonl"], ["/s/a.jsonl", "/s/b.jsonl"], ["/s/a.jsonl", "/s/b.jsonl"], ["/s/a.jsonl"], ["/s/a.jsonl"], []]);
   });
 
   test("goes idle without clients, from the start and after the last leaves", async () => {

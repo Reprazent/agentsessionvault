@@ -181,6 +181,9 @@ export function extension(pi: ExtensionAPI, opts: { devBuild?: string } = {}): v
           );
         return (await connectOrStart({ socketPath: paths.socketPath, logFile: paths.logFile, command })).client;
       },
+      // Each session gets its own connection (see session_shutdown), so the
+      // daemon learns about a switch from the reconnect.
+      session: () => ui?.sessionManager.getSessionFile(),
       onChange: (v) => {
         if (!ui?.hasUI) return;
         ui.ui.setStatus(STATUS_KEY, statusLine(v));

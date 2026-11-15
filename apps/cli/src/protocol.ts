@@ -4,7 +4,7 @@
 
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { type Server, type Socket, createServer } from "node:net";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import { type Hello, type Request, type Response, lineReader, ping } from "@agentsessionvault/daemon-client";
 
@@ -30,6 +30,8 @@ export interface ServeOptions {
    */
   onIdle?: () => void;
   idleMs?: number;
+  /** Called when a client opens or closes a session, or disconnects. */
+  onSessionsChange?: (open: string[]) => void;
 }
 
 export interface DaemonServer {
@@ -37,6 +39,11 @@ export interface DaemonServer {
   clients: () => number;
   /** Names clients gave in `hello`, one per connection that sent it. */
   clientNames: () => string[];
+  /**
+   * Session files clients have open (`open {path}`), one per connection at
+   * most. A connection that drops closes its session.
+   */
+  openSessions: () => string[];
   close: () => Promise<void>;
 }
 
@@ -57,7 +64,9 @@ export async function serve(path: string, handlers: Record<string, Handler>, opt
     throw e;
   }
 
-  const sockets = new Map<Socket, { name?: string }>();
+  const sockets = new Map<Socket, { name?: string; session?: string }>();
+  const openSessions = () => [...new Set([...sockets.values()].flatMap((c) => (c.session ? [c.session] : [])))].sort();
+  const sessionsChanged = () => opts.onSessionsChange?.(openSessions());
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
   const checkIdle = () => {
     if (!opts.onIdle) return;
@@ -70,12 +79,27 @@ export async function serve(path: string, handlers: Record<string, Handler>, opt
       if (typeof p.client === "string") sockets.get(socket)!.name = p.client;
       return { version: opts.version ?? "unknown", pid: process.pid } satisfies Hello;
     },
+    // A harness window says which session it has open; null or no path
+    // closes it. Live pull leaves open sessions alone.
+    open: (p, socket) => {
+      if (p.path !== undefined && p.path !== null && (typeof p.path !== "string" || !p.path)) throw new TypeError("path must be a string");
+      const c = sockets.get(socket)!;
+      const next = typeof p.path === "string" ? resolve(p.path) : undefined;
+      if (c.session === next) return null;
+      if (next) c.session = next;
+      else delete c.session;
+      sessionsChanged();
+      return null;
+    },
   };
   const server = createServer((socket) => {
     sockets.set(socket, {});
     checkIdle();
     const drop = () => {
-      if (sockets.delete(socket)) checkIdle();
+      const c = sockets.get(socket);
+      if (!sockets.delete(socket)) return;
+      checkIdle();
+      if (c?.session) sessionsChanged();
     };
     socket.on("close", drop);
     socket.on("error", drop);
@@ -130,6 +154,7 @@ export async function serve(path: string, handlers: Record<string, Handler>, opt
     server,
     clients: () => sockets.size,
     clientNames: () => [...sockets.values()].flatMap((c) => (c.name ? [c.name] : [])),
+    openSessions,
     close: async () => {
       if (idleTimer) clearTimeout(idleTimer);
       for (const s of sockets.keys()) s.destroy();

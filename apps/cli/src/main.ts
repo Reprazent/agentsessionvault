@@ -51,6 +51,7 @@ async function runDaemon(cfg: Config, idleExit: boolean, idleSeconds: number): P
     server = await serve(cfg.socketPath, handlers(svc, log), {
       log,
       version: VERSION,
+      onSessionsChange: (open) => log(`open sessions: ${open.length ? open.join(", ") : "none"}`),
       ...(idleExit ? { idleMs: idleSeconds * 1000, onIdle: () => void stop(`no clients for ${idleSeconds}s`) } : {}),
     });
   } catch (e) {
@@ -61,6 +62,7 @@ async function runDaemon(cfg: Config, idleExit: boolean, idleSeconds: number): P
     }
     throw e;
   }
+  svc.openSessions = server.openSessions;
   log(`listening on ${cfg.socketPath} (pid ${process.pid}, version ${VERSION}${idleExit ? `, exits after ${idleSeconds}s without clients` : ""})`);
   let stopping = false;
   const stop = async (why: string) => {
@@ -102,6 +104,7 @@ function printStatus(s: Status) {
     out(`auto-push: ${s.sync.watching ? "on" : "off"}, ${s.sync.pending} pending${s.sync.lastPush ? `, last ${s.sync.lastPush.at}` : ""}`);
     if (s.sync.lastError) out(`  last error ${s.sync.lastError.at}: ${s.sync.lastError.message}`);
   }
+  if (s.openSessions) out(`open in a harness: ${s.openSessions.length}`);
 }
 
 async function newPassphrase(): Promise<string> {

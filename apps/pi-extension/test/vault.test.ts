@@ -38,7 +38,7 @@ async function daemon(path: string, status: () => DaemonStatus = () => unlocked)
   return { s, calls };
 }
 
-function vault(path: string, opts: { pollMs?: number } = {}) {
+function vault(path: string, opts: { pollMs?: number; session?: () => string | undefined } = {}) {
   const views: View[] = [];
   const v = new Vault({ connect: () => DaemonClient.connect(path), onChange: (x) => views.push(x), retryMs: 20, maxRetryMs: 40, ...opts });
   vaults.push(v);
@@ -64,6 +64,44 @@ group("Vault", () => {
     v.stop();
     await until(() => s.clients() === 0);
     await v.refresh(); // no-op when stopped
+  });
+
+  test("tells the daemon its open session on every connect", async () => {
+    const path = await sock();
+    let file: string | undefined;
+    const { v } = vault(path, { session: () => file });
+    const first = await daemon(path);
+    v.start();
+    await until(() => v.view.state === "connected");
+    expect(first.s.openSessions()).toEqual([]); // no session file (yet)
+    file = "/s/one.jsonl";
+    await first.s.close();
+    servers.splice(servers.indexOf(first.s), 1);
+    await until(() => v.view.state !== "connected");
+    const second = await daemon(path);
+    await until(() => v.view.state === "connected");
+    expect(second.s.openSessions()).toEqual(["/s/one.jsonl"]);
+    v.stop();
+    await until(() => second.s.openSessions().length === 0);
+  });
+
+  test("stays connected to a daemon that doesn't know open", async () => {
+    const path = await sock();
+    const old = await serve(path, { status: async () => unlocked }, { version: "0.2.0" });
+    servers.push(old);
+    // Hide the built-in, as a 0.2.0 daemon would.
+    const { v } = vault(path, { session: () => "/s/one.jsonl" });
+    const real = DaemonClient.prototype.call;
+    DaemonClient.prototype.call = function (this: DaemonClient, method: string, params?: Record<string, unknown>) {
+      return method === "open" ? Promise.reject(new Error("unknown method open")) : real.call(this, method, params);
+    } as typeof real;
+    try {
+      v.start();
+      await until(() => v.view.state === "connected");
+      expect(v.view).toMatchObject({ hello: { version: "0.2.0" } });
+    } finally {
+      DaemonClient.prototype.call = real;
+    }
   });
 
   test("retries until a daemon answers, and reconnects when it goes away", async () => {

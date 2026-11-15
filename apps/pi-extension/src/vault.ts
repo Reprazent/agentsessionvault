@@ -28,6 +28,8 @@ export interface VaultOptions {
   /** Connects, starting the daemon if needed. */
   connect: () => Promise<DaemonClient>;
   onChange: (v: View) => void;
+  /** The session file this window has open, told to the daemon on connect. */
+  session?: () => string | undefined;
   /** How often to refresh the status over the open connection. */
   pollMs?: number;
   /** First reconnect delay; doubles up to maxRetryMs. */
@@ -90,6 +92,10 @@ export class Vault {
     try {
       c = await this.o.connect();
       const hello = await c.call<Hello>("hello", { client: "pi" });
+      const session = this.o.session?.();
+      // A daemon from before `open` refuses it; stay connected anyway, so
+      // the version warning and /vault restart still work.
+      if (session) await c.call("open", { path: session }).catch(() => {});
       const status = await c.call<DaemonStatus>("status");
       if (this.stopped) return c.close();
       this.client = c;
