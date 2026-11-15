@@ -17,7 +17,7 @@ const USAGE = `agentsessionvault: end-to-end encrypted sync for agent sessions
 Usage:
   asv daemon [--idle-exit [--idle-seconds N]]
                                     run the daemon in the foreground; with
-                                    --idle-exit, stop N s (30) after the last client
+                                    --idle-exit, stop N s (5) after the last client
   asv login [email] [--paste]       sign in via the emailed link (--paste: no local server)
   asv setup [--generate]            first device: create the account
   asv unlock [--recovery]           unlock this device
@@ -39,7 +39,8 @@ Every command except daemon talks to a running daemon.
 /**
  * `asv daemon`: runs in the foreground until stopped. With
  * --idle-exit (how harness clients start it), it exits once no client has
- * been connected for --idle-seconds (default 30).
+ * been connected for --idle-seconds (default 5): long enough for a
+ * harness to reconnect after a /reload or a session switch.
  */
 async function runDaemon(cfg: Config, idleExit: boolean, idleSeconds: number): Promise<never> {
   const log = (m: string) => process.stderr.write(`${new Date().toISOString()} ${m}\n`);
@@ -141,7 +142,7 @@ export async function main(argv: string[]): Promise<number> {
   switch (cmd) {
     case "daemon":
       {
-        const secs = Number(values["idle-seconds"] ?? 30);
+        const secs = Number(values["idle-seconds"] ?? 5);
         if (!Number.isFinite(secs) || secs < 0) throw new TypeError("--idle-seconds must be a number of seconds");
         await runDaemon(loadConfig(), values["idle-exit"] === true, secs);
       }

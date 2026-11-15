@@ -63,7 +63,7 @@ export async function serve(path: string, handlers: Record<string, Handler>, opt
     if (!opts.onIdle) return;
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = undefined;
-    if (sockets.size === 0) idleTimer = setTimeout(opts.onIdle, opts.idleMs ?? 30_000);
+    if (sockets.size === 0) idleTimer = setTimeout(opts.onIdle, opts.idleMs ?? 5_000);
   };
   const builtins: Record<string, (p: Record<string, unknown>, socket: Socket) => unknown> = {
     hello: (p, socket) => {

@@ -194,7 +194,7 @@ export function extension(pi: ExtensionAPI, opts: { devBuild?: string } = {}): v
   });
 
   // Also on /new, /resume, fork and reload: the runtime, and on reload this
-  // extension, is recreated. The daemon outlives the gap (it waits 30s).
+  // extension, is recreated. The daemon outlives the gap (it waits 5s).
   pi.on("session_shutdown", async () => {
     stop();
     ui = undefined;

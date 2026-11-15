@@ -14,7 +14,7 @@ Everything goes through the daemon, so start it first and leave it running in it
 
     asv daemon
 
-It asks for the passphrase on start when there's an account, or reads `AGENTSESSIONVAULT_PASSPHRASE`. Run this way, it stays up until you stop it. Harness clients (the Pi extension, next) start it themselves with `daemon --idle-exit`, in the background with its log in `~/.local/share/agentsessionvault/daemon.log`, and share one daemon per machine. That one exits 30 seconds after the last client disconnects, pushing what's queued first. Then, in another terminal:
+It asks for the passphrase on start when there's an account, or reads `AGENTSESSIONVAULT_PASSPHRASE`. Run this way, it stays up until you stop it. Harness clients (the Pi extension, next) start it themselves with `daemon --idle-exit`, in the background with its log in `~/.local/share/agentsessionvault/daemon.log`, and share one daemon per machine. That one exits 5 seconds after the last client disconnects, pushing what's queued first. Then, in another terminal:
 
     asv login you@example.com    # click the link in the email (or paste it, see below)
     asv setup                    # first device: passphrase, prints the recovery key
@@ -99,7 +99,7 @@ That binary is also the CLI: `~/.local/share/agentsessionvault/bin/<version>/asv
 
 4. Start Pi. The footer shows `vault: …`. If a daemon you started by hand with `asv daemon` is already running, the extension uses that one. Otherwise its log is in `~/.local/share/agentsessionvault/daemon.log`. Sign in and unlock with the CLI as above, and the footer follows within a few seconds.
 
-`AGENTSESSIONVAULT_BIN` overrides which binary it starts. Rebuild after changing CLI or daemon code. A daemon that's still running keeps the old code: quit all Pi windows and wait 30 seconds, or stop it with `pkill -f 'asv daemon'`. `/vault` shows the running daemon's version and pid.
+`AGENTSESSIONVAULT_BIN` overrides which binary it starts. Rebuild after changing CLI or daemon code. A daemon that's still running keeps the old code: quit all Pi windows and wait 5 seconds, or stop it with `pkill -f 'asv daemon'`. `/vault` shows the running daemon's version and pid.
 
 To keep a development setup apart from your real one, start Pi with `AGENTSESSIONVAULT_HOME` set (state, socket, log and downloaded binaries). The daemon inherits it. `AGENTSESSIONVAULT_PI_SESSIONS` changes which Pi sessions the daemon watches, not where Pi writes them.
 
