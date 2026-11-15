@@ -1,27 +1,70 @@
 # agentsessionvault
 
-End-to-end encrypted sync for coding agent sessions, on Supabase. See [docs/spec.md](docs/spec.md).
+Syncs your coding agent sessions between machines, end-to-end encrypted. Sessions are encrypted on your machine with a key derived from your passphrase. The server (Supabase) only stores ciphertext and can't read them. The design is in [docs/spec.md](docs/spec.md).
 
-Status: milestone 3, in progress. The CLI and daemon sign in, set up or unlock an account, push Pi sessions as they change, pull them by hand and place them by project. A first Pi extension starts the daemon and shows its status. No Realtime pull yet.
+It works with [Pi](https://github.com/earendil-works/pi) for now. Claude Code and OpenCode are planned.
 
-## Using the CLI
+This is a proof of concept. Sessions push automatically as you work, but pulling a session onto another machine is still a manual `asv pull`. Live pull is next.
 
-Run it from the repo with bun, or build the single binary (`pnpm --filter @agentsessionvault/cli build`, output in `apps/cli/dist/`):
+## Getting started
 
-    alias asv='bun apps/cli/src/main.ts'
+You need Pi on macOS or Linux (arm64 or x64). Sign-in works by email link, and for now the project sends those with Supabase's built-in sender, which only delivers to members of the Supabase organisation. Ask to be added before you start.
 
-Everything goes through the daemon, so start it first and leave it running in its own terminal:
+### 1. Install the extension
 
-    asv daemon
+    pi install git:github.com/Reprazent/agentsessionvault@v0.2.0
 
-It asks for the passphrase on start when there's an account, or reads `AGENTSESSIONVAULT_PASSPHRASE`. Run this way, it stays up until you stop it. Harness clients (the Pi extension, next) start it themselves with `daemon --idle-exit`, in the background with its log in `~/.local/share/agentsessionvault/daemon.log`, and share one daemon per machine. That one exits 5 seconds after the last client disconnects, pushing what's queued first. Then, in another terminal:
+Use the newest tag from the [releases page](https://github.com/Reprazent/agentsessionvault/releases). To upgrade later, run the same command with the new tag.
 
-    asv login you@example.com    # click the link in the email (or paste it, see below)
-    asv setup                    # first device: passphrase, prints the recovery key
-    asv unlock                   # other devices (--recovery for the recovery key)
+Start Pi. The first time, the extension downloads the matching `asv` binary from that release and checks it against the release's `SHA256SUMS`. The footer says `vault: downloading daemon` meanwhile, then `vault: signed out`.
+
+### 2. Sign in
+
+    /vault login you@example.com
+
+Click the link in the email on the same machine and Pi carries on by itself. On a machine without a browser (a VM over SSH, say), copy the link from the email and paste it into Pi instead.
+
+### 3. Create your vault, or unlock it
+
+On your first machine, Pi continues with setup. Choose a passphrase of at least 16 characters, or let it generate one. Then it shows a recovery key, once. Store both in a password manager. Nobody can reset the passphrase for you, and without the passphrase or the recovery key your synced sessions are gone for good.
+
+On every other machine, Pi asks for the passphrase instead. That adds the machine as a new device.
+
+The footer then reads `vault: synced`. From then on, every Pi session is pushed a couple of seconds after it changes.
+
+### Day to day
+
+The vault runs a small background daemon that holds your keys. Pi starts it and it stops 5 seconds after the last Pi window closes. Keys only live in memory, so when the daemon starts again, Pi asks for the passphrase once. Press escape to skip it; sessions then just don't sync until you `/vault unlock`.
+
+| Command | |
+|---|---|
+| `/vault` | Sync status, and the daemon's version |
+| `/vault login [email]` | Sign in, then continue with setup or unlock |
+| `/vault setup` | Create the vault on your first machine |
+| `/vault unlock [--recovery]` | Unlock with the passphrase, or with the recovery key |
+| `/vault logout` | Sign out on this machine |
+| `/vault restart` | Restart the daemon, e.g. when Pi warns it's older than the extension |
+
+The footer shows `vault: signed out`, `locked`, `synced`, `2 queued` or `push failed`. The daemon's log is `~/.local/share/agentsessionvault/daemon.log`.
+
+### Getting a session onto another machine
+
+For now that takes the CLI (see below): `asv sessions` lists what's in the vault, `asv pull <session-id>` writes it into Pi's session directory, and `/resume` in Pi picks it up. Don't pull into a session that's open in Pi.
+
+## The CLI
+
+The extension's download is also the CLI. It isn't on your `PATH` yet, so either alias it:
+
+    alias asv=~/.local/share/agentsessionvault/bin/0.2.0/asv
+
+or, from a checkout, run `bun apps/cli/src/main.ts`. All commands talk to a running daemon. They don't start one, so keep Pi open or run `asv daemon` in another terminal. A daemon started that way stays up until you stop it, and asks for the passphrase on start (or reads `AGENTSESSIONVAULT_PASSPHRASE`).
+
+    asv login you@example.com    # click the link in the email, or paste it
+    asv setup                    # first machine: passphrase, prints the recovery key
+    asv unlock                   # other machines (--recovery for the recovery key)
     asv passphrase               # new passphrase; --recovery if you forgot the old one
     asv status
-    asv push ~/.pi/agent/sessions/<dir>/<file>.jsonl   # by hand; see auto-push below
+    asv push <session file>      # by hand; the daemon also does this on its own
     asv sessions
     asv pull <session-id>        # into ~/.pi/agent/sessions, or --out <path>
     asv projects                 # one per git remote, else per path under $HOME
@@ -29,89 +72,59 @@ It asks for the passphrase on start when there's an account, or reads `AGENTSESS
     asv devices
     asv devices revoke <id>      # an id prefix is enough
 
-`login` starts a one-shot server on `127.0.0.1` (random port and path) inside the daemon, and the email link redirects there. Click it in a browser on the same machine and the terminal finishes by itself. Sign-in uses PKCE, so the code in that redirect is only useful to this daemon.
+`login --paste` skips the local callback server. The callback listens on `127.0.0.1` with a random port and path, and sign-in uses PKCE, so the code in the redirect is only useful to this daemon. The email has no code to type, because the free tier doesn't allow custom templates with the default sender.
 
-On another machine (a VM over SSH, say), copy the link from the email and paste it at the prompt instead. If you already clicked it, paste the address of the page it tried to open. `login --paste` skips the local server entirely. The free tier doesn't allow custom email templates with the default sender, so the email has no code. The default sender also only delivers to members of the Supabase organisation.
+While unlocked, the daemon watches `~/.pi/agent/sessions` and pushes a session 2 seconds after Pi last wrote to it. On unlocking, it first pushes whatever changed while it wasn't running. Failed pushes retry with backoff, and `asv status` shows what's queued and the last error.
 
-While testing, the built-in sender's limit of a few emails per hour runs out quickly. With the daemon running, `pnpm dev:login you@example.com` signs it in without sending an email. It makes the link with the admin API (using the secret key from the logged-in Supabase CLI), creates the user if needed and completes the redirect to the daemon's callback. It respects `AGENTSESSIONVAULT_HOME` and `AGENTSESSIONVAULT_SOCKET`. Dev only, and it doesn't exercise the PKCE email path.
+Pulled sessions go to this machine's checkout of the same project: a `map` you made, the original directory if it holds the same project here, or a directory with Pi sessions for the same git remote. Otherwise they wait in `~/.pi/agent/sessions/_unmapped/<project>/`, where Pi doesn't list them, until you `asv map` the project.
 
-To try a second device on one machine, give it its own state directory and socket:
+A session you push from a second machine before pulling it there gets merged first, so nothing is duplicated. In rare cases an existing session re-sends some entries, which is harmless because entries merge by id.
 
-    AGENTSESSIONVAULT_HOME=/tmp/asv-b AGENTSESSIONVAULT_PI_SESSIONS=/tmp/asv-b/pi asv daemon
-    AGENTSESSIONVAULT_HOME=/tmp/asv-b asv login you@example.com
+State lives in `~/.local/share/agentsessionvault/`: `auth.json` holds the sign-in, `sessions/` the sync state per session, `bin/` the downloaded binaries. No keys are ever written there. Other settings: `AGENTSESSIONVAULT_HOME` (the state directory), `AGENTSESSIONVAULT_SOCKET`, `AGENTSESSIONVAULT_PI_SESSIONS` (which Pi sessions the daemon watches), `AGENTSESSIONVAULT_BIN` (which binary the extension starts), `AGENTSESSIONVAULT_SUPABASE_URL` and `AGENTSESSIONVAULT_PUBLISHABLE_KEY`.
 
-Other settings: `AGENTSESSIONVAULT_SOCKET`, `AGENTSESSIONVAULT_SUPABASE_URL`, `AGENTSESSIONVAULT_PUBLISHABLE_KEY`. State lives in `~/.local/share/agentsessionvault/` (`auth.json` holds the sign-in, `sessions/` the sync state per session). No keys are ever written there.
+## Development
 
-While unlocked, the daemon pushes on its own: it watches `~/.pi/agent/sessions` and pushes a session 2 seconds after Pi last wrote to it. On unlocking, it first pushes anything that changed while it wasn't running. `asv status` shows what's queued and the last error. Failed pushes retry with backoff.
-
-Known limits for now:
-
-- `pull` appends to the session file. Don't pull into a session that's open in Pi.
-- Pulled sessions go to this machine's checkout of the same project: a `map`, the original directory if it's the same project here, or a directory with Pi sessions for the same remote. Otherwise they wait in `~/.pi/agent/sessions/_unmapped/<project>/`, where Pi doesn't list them, until you `asv map` the project.
-- A session you push from a second device before pulling it there is merged first, so nothing is duplicated. A session that already exists remotely can still re-send some entries in rare cases. Merging by id makes this harmless.
-
-## Setup
-
-Tools are pinned in `mise.toml` (node, bun, pnpm, supabase CLI).
+Tools are pinned in `mise.toml` (node, bun, pnpm, the Supabase CLI). No Docker needed.
 
     mise install
     pnpm install
 
-No Docker needed.
+### Running the extension from a checkout
 
-## Pi extension
-
-`apps/pi-extension` connects Pi to the daemon. On session start it connects, or starts `asv daemon --idle-exit` in the background, and keeps the connection open while Pi runs. The footer shows `vault: signed out`, `locked`, `synced`, `2 queued` or `push failed`. After each run it asks the daemon to push the session right away.
-
-Everything else goes through `/vault`:
-
-| Command | |
-|---|---|
-| `/vault` | Sync status |
-| `/vault login [email]` | Emails a sign-in link. Open it on this machine, or paste the code. Continues with setup or unlock. |
-| `/vault setup` | First device: choose or generate a passphrase, then shows the recovery key once |
-| `/vault unlock [--recovery]` | Unlock with the passphrase, or the recovery key |
-| `/vault logout` | Sign out on this device |
-| `/vault restart` | Restart the daemon, e.g. when it's an older version than the extension |
-
-When the daemon is locked, Pi asks for the passphrase once per Pi process (escape skips it). Passphrases are typed into a masked field and go straight to the daemon. Pi warns when the running daemon's version differs from the extension's.
-
-### Installing from GitHub
-
-    pi install git:github.com/Reprazent/agentsessionvault@v<version>
-
-The repo root is the Pi package. Pi clones it and runs `npm install`, which installs nothing (there are no runtime dependencies). On first start, the extension downloads the daemon for its own version from the GitHub release `v<version>` (`asv-<os>-<arch>`, macOS and Linux, arm64 and x64), checks it against the release's `SHA256SUMS`, and keeps it in `~/.local/share/agentsessionvault/bin/<version>/`. The footer shows `vault: downloading daemon` meanwhile. If the download fails, it falls back to `asv` on the `PATH`.
-
-That binary is also the CLI: `~/.local/share/agentsessionvault/bin/<version>/asv login you@example.com`, and so on.
-
-### Installing from this checkout (development)
-
-1. `pnpm install` (see Setup). Pi doesn't install dependencies for a local package.
-2. Build the CLI binary. The extension prefers `apps/cli/dist/asv` in its checkout over a download:
+1. Build the CLI binary. The extension prefers `apps/cli/dist/asv` in its own checkout over a download:
 
        pnpm --filter @agentsessionvault/cli build
 
-3. Install the extension as a local Pi package. Pi loads it from the checkout without copying, so edits apply on the next start or `/reload`:
+2. Install the checkout as a Pi package. Pi loads it in place, so edits apply on the next start or `/reload`:
 
        pi install .
 
-   To try it for one run instead: `pi -e .`. To remove it: `pi remove .`.
+   For one run only: `pi -e .`. To remove it: `pi remove .`.
 
-4. Start Pi. The footer shows `vault: …`. If a daemon you started by hand with `asv daemon` is already running, the extension uses that one. Otherwise its log is in `~/.local/share/agentsessionvault/daemon.log`. Sign in and unlock with the CLI as above, and the footer follows within a few seconds.
+Rebuild after changing CLI or daemon code. A running daemon keeps the old code until it stops: quit all Pi windows and wait 5 seconds, or `pkill -f 'asv daemon'`. `/vault` shows the running daemon's version and pid.
 
-`AGENTSESSIONVAULT_BIN` overrides which binary it starts. Rebuild after changing CLI or daemon code. A daemon that's still running keeps the old code: quit all Pi windows and wait 5 seconds, or stop it with `pkill -f 'asv daemon'`. `/vault` shows the running daemon's version and pid.
+To keep a development setup apart from your real one, start Pi with `AGENTSESSIONVAULT_HOME` set; the daemon inherits it. Set `AGENTSESSIONVAULT_PI_SESSIONS` too, or that daemon watches and pushes your real Pi sessions.
 
-To keep a development setup apart from your real one, start Pi with `AGENTSESSIONVAULT_HOME` set (state, socket, log and downloaded binaries). The daemon inherits it. `AGENTSESSIONVAULT_PI_SESSIONS` changes which Pi sessions the daemon watches, not where Pi writes them.
+To try a second device on one machine, give it its own state directory:
+
+    AGENTSESSIONVAULT_HOME=/tmp/asv-b AGENTSESSIONVAULT_PI_SESSIONS=/tmp/asv-b/pi asv daemon
+    AGENTSESSIONVAULT_HOME=/tmp/asv-b asv login you@example.com
+
+The built-in email sender allows a few emails an hour, which testing uses up quickly. With a daemon running, `pnpm dev:login you@example.com` signs it in without an email. It creates the link with the admin API (using the secret key from the logged-in Supabase CLI), creates the user if needed and completes the redirect to the daemon's callback. It respects `AGENTSESSIONVAULT_HOME` and `AGENTSESSIONVAULT_SOCKET`. It doesn't exercise the PKCE email path.
+
+### How the GitHub install works
+
+The repo root is the Pi package. Pi clones it at the tag and runs `npm install`, which installs nothing because there are no runtime dependencies. The extension, the CLI and the daemon share one version, from the root `package.json`. On first start the extension downloads `asv-<os>-<arch>` for its version from the GitHub release `v<version>`, verifies it against `SHA256SUMS` and keeps it in `~/.local/share/agentsessionvault/bin/<version>/`. If that fails, it falls back to `asv` on the `PATH`. `AGENTSESSIONVAULT_RELEASES_URL` points it at another server for testing.
 
 ### Releasing
 
-Releases are automatic. On every push to `main`, `.github/workflows/main.yml` tests, deploys to production (see Deploying) and then runs [semantic-release](https://semantic-release.gitbook.io/), which reads the conventional commits since the last tag: `fix:` makes a patch release, `feat:` a minor one, and `BREAKING CHANGE:` (or `feat!:`) a major one. Other types (`docs:`, `refactor:`, `chore:`, …) don't release.
+Releases are automatic. On every push to `main`, `.github/workflows/main.yml` tests, deploys to production (see Deploying) and then runs [semantic-release](https://semantic-release.gitbook.io/). It reads the conventional commits since the last tag: `fix:` makes a patch release, `feat:` a minor one, and `BREAKING CHANGE:` (or `feat!:`) a major one. Other types (`docs:`, `refactor:`, `chore:`) don't release.
 
-For a release, it sets the version in the root `package.json` (shared by the CLI, the daemon and the extension), builds all four binaries plus `SHA256SUMS` with `bun scripts/build-release.ts`, commits `package.json` as `chore(release): v<version> [skip ci]`, tags that commit, and publishes the GitHub release with notes and binaries. An extension installed at that tag downloads exactly those binaries. Config: `.releaserc.json`.
+For a release, it sets the version in the root `package.json`, builds the four binaries and `SHA256SUMS` with `bun scripts/build-release.ts`, commits `package.json` as `chore(release): v<version> [skip ci]`, tags that commit and publishes the GitHub release with notes and binaries. An extension installed at that tag downloads exactly those binaries. Config: `.releaserc.json`.
 
-Run `bun scripts/build-release.ts` locally to check a build, or `pnpm release:dry` to see what the next release would be (needs `GITHUB_TOKEN`). `AGENTSESSIONVAULT_RELEASES_URL` points the extension at another server for testing.
+`bun scripts/build-release.ts` checks a build locally. `pnpm release:dry` shows what the next release would be (needs `GITHUB_TOKEN`).
 
-## Local testing
+### Testing
 
 | Command | What it does |
 | --- | --- |
@@ -127,19 +140,39 @@ Run a single package or file with bun directly:
     bun test packages/crypto
     bun test packages/crypto/test/chunk.test.ts
 
-### `pnpm test` (crypto)
+#### `pnpm test` (crypto)
 
 Covers `packages/crypto`: key derivation, key wrapping, envelopes, the chunk format and recovery keys. The tests check output against an independent `node:crypto` implementation, plus tampering and moving ciphertext between rows.
 
-### `pnpm test:db:local` (approximate)
+#### `pnpm test:db:local` (approximate)
 
 The Supabase CLI's local stack needs Docker, so this runs in [PGlite](https://pglite.dev) instead (`scripts/db-check-pglite.ts`). It stubs `auth.uid()`, `auth.jwt()`, `storage.buckets`/`objects` and the `supabase_realtime` publication. It also provides a minimal pgTAP shim (`plan`, `lives_ok`, `throws_ok`, `is`, `finish`). The script exits non-zero if any test fails or the count doesn't match `plan()`.
 
 It's a quick feedback loop, not the source of truth. Real Supabase auth, storage and pgTAP can behave differently, and tests may only use the functions the shim provides.
 
-### `pnpm test:e2e` (hosted)
+#### `pnpm test:e2e` (hosted)
 
 Creates a throwaway user with the admin API and signs devices in with tokens from `generateLink`, so no email is sent. It drives `VaultService` (the daemon's core) through the whole flow and deletes the user and its objects afterwards. The secret key comes from `supabase projects api-keys --reveal` at runtime and is never written to disk. `packages/client/src/supabase.ts` is only covered by this, so it's excluded from the unit coverage threshold.
+
+#### `pnpm test:db` (hosted)
+
+Needs a linked project and the database password in `SUPABASE_DB_PASSWORD`. Put it in `mise.local.toml` (gitignored):
+
+    [env]
+    SUPABASE_DB_PASSWORD = "..."
+
+Then:
+
+    supabase login
+    supabase link --project-ref <ref>
+    supabase db push --remote
+    pnpm test:db          # asks for confirmation; pass --yes to skip it
+
+`supabase test db --remote` still runs `pg_prove` in Docker, so `scripts/db-test-remote.ts` sends each test file through `supabase db query --remote` instead. That returns a single result set, so the script swaps `finish()` for a read of pgTAP's counters. It reports passed, run and planned counts per file, but not which test failed. Use `pnpm test:db:local` or the SQL editor for that. Test files must end with `select * from finish(); rollback;`.
+
+The tests run in a transaction and roll back, but they still run against that database. The only hosted project right now is production, so keep that in mind.
+
+`supabase db advisors --remote` should report only one warning: `commit_chunk` is a `security definer` function that signed-in users can call. That's on purpose. It's the only way to append chunks, and it checks the caller itself.
 
 ### Deploying
 
@@ -172,23 +205,3 @@ The access token needs these permissions (from the Management API's `x-fga-permi
 Migrations use the database password, not the token.
 
 Don't run `db push` against production by hand; merge to `main` instead.
-
-### `pnpm test:db` (hosted)
-
-Needs a linked project and the database password in `SUPABASE_DB_PASSWORD`. Put it in `mise.local.toml` (gitignored):
-
-    [env]
-    SUPABASE_DB_PASSWORD = "..."
-
-Then:
-
-    supabase login
-    supabase link --project-ref <ref>
-    supabase db push --remote
-    pnpm test:db          # asks for confirmation; pass --yes to skip it
-
-`supabase test db --remote` still runs `pg_prove` in Docker, so `scripts/db-test-remote.ts` sends each test file through `supabase db query --remote` instead. That returns a single result set, so the script swaps `finish()` for a read of pgTAP's counters. It reports passed, run and planned counts per file, but not which test failed. Use `pnpm test:db:local` or the SQL editor for that. Test files must end with `select * from finish(); rollback;`.
-
-The tests run in a transaction and roll back, but they still execute against that database. Use a dev project, not production.
-
-`supabase db advisors --remote` should report only one warning: `commit_chunk` is a `security definer` function that signed-in users can call. That's on purpose. It's the only way to append chunks, and it checks the caller itself.
