@@ -83,6 +83,11 @@ jobs:
           fetch-depth: 0
       - uses: jdx/mise-action@v5
       - run: pnpm install --frozen-lockfile
+      # npm publishes with OIDC from 11.5.1 on. The plugin runs whichever npm
+      # it finds: pnpm doesn't link the one it bundles into node_modules/.bin,
+      # so without this it's Node 22's npm 10, which finds no credentials
+      # (ENEEDAUTH) even though the plugin's own OIDC check passes.
+      - run: npm install --global npm@11
       # @semantic-release/npm checks dist/npm/package.json before the
       # release; prepare rebuilds it with the new version.
       - run: bun scripts/build-npm.ts
