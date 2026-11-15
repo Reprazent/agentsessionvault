@@ -4,11 +4,13 @@
   "plugins": [
     ["@semantic-release/commit-analyzer", { "preset": "conventionalcommits" }],
     ["@semantic-release/release-notes-generator", { "preset": "conventionalcommits" }],
+    ["@semantic-release/changelog", { "changelogFile": "CHANGELOG.md" }],
     ["@semantic-release/exec", {
-      "prepareCmd": "npm pkg set version=${nextRelease.version} && bun scripts/build-release.ts --tag v${nextRelease.version}"
+      "prepareCmd": "npm pkg set version=${nextRelease.version} && bun scripts/build-release.ts --tag v${nextRelease.version} && bun scripts/build-npm.ts"
     }],
+    ["@semantic-release/npm", { "pkgRoot": "dist/npm" }],
     ["@semantic-release/git", {
-      "assets": ["package.json"],
+      "assets": ["package.json", "CHANGELOG.md"],
       "message": "chore(release): v${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
     }],
     ["@semantic-release/github", {
