@@ -9,11 +9,11 @@ Sync coding agent sessions between my machines, end-to-end encrypted, with Supab
 
 Pi keeps sessions in `~/.pi/agent/sessions/`, grouped by absolute working directory. They don't follow me between machines and throwaway VMs. What exists today:
 
-- `ersintarhan/pi-sync` is the closest. It encrypts each session (AES-256-GCM over gzip) into an S3 bucket you bring yourself, with an encrypted manifest. You hand-copy a raw key to every machine via an env var. Push/pull is manual (plus auto-push on exit) and conflicts are last writer wins on mtime, guarded by a lock.
-- `SmileyChris/pi-sync` is peer to peer over Tailscale using Automerge. Sessions get copied per hostname, so there's no merging, and both machines have to be online.
-- `brglng/pi-session-sync` does a manual two-way sync into a local directory (Dropbox and friends). Unencrypted, but it has the most thought-through path portability.
-- `pi-opensync-plugin` ships sessions to OpenSync's hosted dashboard. One way, and the server can read everything.
-- `xhluca/session-migrate` and `npow/session-sync` convert sessions between harnesses, locally only.
+- [`ersintarhan/pi-sync`](https://github.com/ersintarhan/pi-sync) is the closest. It encrypts each session (AES-256-GCM over gzip) into an S3 bucket you bring yourself, with an encrypted manifest. You hand-copy a raw key to every machine via an env var. Push/pull is manual (plus auto-push on exit) and conflicts are last writer wins on mtime, guarded by a lock.
+- [`SmileyChris/pi-sync`](https://github.com/SmileyChris/pi-sync) is peer to peer over Tailscale using Automerge. Sessions get copied per hostname, so there's no merging, and both machines have to be online.
+- [`brglng/pi-session-sync`](https://github.com/brglng/pi-session-sync) does a manual two-way sync into a local directory (Dropbox and friends). Unencrypted, but it has the most thought-through path portability.
+- [`pi-opensync-plugin`](https://github.com/joshuadavidthomas/pi-opensync-plugin) ships sessions to [OpenSync](https://github.com/waynesutton/opensync)'s hosted dashboard. One way, and the server can read everything.
+- [`xhluca/session-migrate`](https://github.com/xhluca/session-migrate) and [`npow/session-sync`](https://github.com/npow/session-sync) convert sessions between harnesses, locally only.
 
 Nobody combines sync with cross-harness conversion, and nobody offers a hosted service where the server can't read the data. The existing sync tools also treat a session as one opaque file, while Pi's format is an append-only tree that merges cleanly if you sync entries instead of files.
 
